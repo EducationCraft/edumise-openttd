@@ -1,3 +1,67 @@
+      /* EduCraft: dotykove ovladani.
+       *
+       * OpenTTD pocita s mysi a prave tlacitko pouziva na bourani a na napovedu
+       * k prvkum rozhrani. Dotykovy displej zadne prave tlacitko nema a nativni
+       * emulace v OpenTTD existuje jen pro macOS, takze ji tady poskladame sami:
+       * dlouhy stisk na miste = prave kliknuti.
+       *
+       * Posun mapy resi nastaveni scroll_mode = MapLMB (tah prstem), takze tady
+       * staci pokryt prave tlacitko.
+       */
+      (function () {
+        var canvas = document.getElementById('canvas');
+        if (!canvas || !('ontouchstart' in window)) return;
+
+        var PRODLEVA_MS = 500;
+        var TOLERANCE_PX = 12;
+
+        var casovac = null;
+        var start = null;
+        var vystrelil = false;
+
+        function mysNa(typ, x, y) {
+          canvas.dispatchEvent(new MouseEvent(typ, {
+            bubbles: true, cancelable: true, view: window,
+            clientX: x, clientY: y, button: 2, buttons: typ === 'mouseup' ? 0 : 2
+          }));
+        }
+
+        function zrus() {
+          if (casovac !== null) { clearTimeout(casovac); casovac = null; }
+        }
+
+        canvas.addEventListener('touchstart', function (e) {
+          if (e.touches.length !== 1) { zrus(); return; }
+          var t = e.touches[0];
+          start = { x: t.clientX, y: t.clientY };
+          vystrelil = false;
+          zrus();
+          casovac = setTimeout(function () {
+            casovac = null;
+            vystrelil = true;
+            mysNa('mousedown', start.x, start.y);
+            mysNa('mouseup', start.x, start.y);
+          }, PRODLEVA_MS);
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', function (e) {
+          if (!start || e.touches.length !== 1) { zrus(); return; }
+          var t = e.touches[0];
+          /* Tah je posun mapy, ne prave kliknuti — jakmile se prst hne, cekani rusime. */
+          if (Math.abs(t.clientX - start.x) > TOLERANCE_PX ||
+              Math.abs(t.clientY - start.y) > TOLERANCE_PX) zrus();
+        }, { passive: true });
+
+        canvas.addEventListener('touchend', function (e) {
+          zrus();
+          /* Kdyz uz prave kliknuti probehlo, nesmi za nim prijit jeste leve —
+           * jinak by dlouhy stisk udelal oboji. */
+          if (vystrelil) { e.preventDefault(); vystrelil = false; }
+        }, { passive: false });
+
+        canvas.addEventListener('touchcancel', zrus, { passive: true });
+      })();
+
       /* EduCraft: drive inline oncontextmenu na <canvas>; inline handlery
          blokuje CSP stejne jako inline <script>. */
       document.getElementById('canvas')
