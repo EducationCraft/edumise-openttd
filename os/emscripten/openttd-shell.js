@@ -10,7 +10,10 @@
        */
       (function () {
         var canvas = document.getElementById('canvas');
-        if (!canvas || !('ontouchstart' in window)) return;
+        /* Zadna detekce dotyku: na zarizeni bez nej se touch udalosti proste
+         * nikdy nespusti, kdezto detekce umi nepravdive rict ne a tim tichounce
+         * vypnout prave tlacitko na tabletu, kde je potreba. */
+        if (!canvas) return;
 
         var PRODLEVA_MS = 500;
         var TOLERANCE_PX = 12;
