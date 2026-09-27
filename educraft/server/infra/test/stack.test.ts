@@ -79,6 +79,16 @@ describe('DopravaStack (contract §6.1)', () => {
     });
   });
 
+  it('EFS: no anonymous mounts, TLS only, access points only', () => {
+    const fsPolicy = JSON.stringify(Object.values(t.findResources('AWS::EFS::FileSystem'))[0].Properties.FileSystemPolicy);
+    expect(fsPolicy).toContain('"aws:SecureTransport":"false"');
+    expect(fsPolicy).toContain('"elasticfilesystem:AccessPointArn":"true"');
+    expect(fsPolicy).toContain('"elasticfilesystem:AccessedViaMountTarget":"true"');
+    const stmts = JSON.parse(fsPolicy).Statement;
+    // ClientMount is never granted by the resource policy: only the per-game task role has it.
+    expect(stmts.filter((x: any) => x.Effect === 'Allow' && [x.Action].flat().includes('elasticfilesystem:ClientMount'))).toEqual([]);
+  });
+
   it('logs kept 90 days, no NAT gateway', () => {
     t.hasResourceProperties('AWS::Logs::LogGroup', { LogGroupName: `/ecs/edumise-doprava/${KEY}`, RetentionInDays: 90 });
     t.resourceCountIs('AWS::EC2::NatGateway', 0);

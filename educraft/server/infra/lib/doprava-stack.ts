@@ -91,7 +91,28 @@ export class DopravaStack extends Stack {
       securityGroup: fsSg,
       removalPolicy: RemovalPolicy.RETAIN,
       lifecyclePolicy: efs.LifecyclePolicy.AFTER_30_DAYS,
+      // Only IAM principals may mount; without a policy EFS lets any NFS client in (§6.1).
+      allowAnonymousAccess: false,
     });
+    // Every mount must be TLS and go through an access point, so a task role's
+    // AccessPointArn condition confines it to /games/<gameKey> (§6.1, §9).
+    const nfsActions = ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite', 'elasticfilesystem:ClientRootAccess'];
+    fs.addToResourcePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.DENY,
+        principals: [new iam.AnyPrincipal()],
+        actions: ['*'],
+        conditions: { Bool: { 'aws:SecureTransport': 'false' } },
+      }),
+    );
+    fs.addToResourcePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.DENY,
+        principals: [new iam.AnyPrincipal()],
+        actions: nfsActions,
+        conditions: { Null: { 'elasticfilesystem:AccessPointArn': 'true' } },
+      }),
+    );
 
     props.games.forEach((g, i) => {
       if (!GAME_KEY_RE.test(g.gameKey)) throw new Error(`invalid gameKey ${g.gameKey}`);
