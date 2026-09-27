@@ -28,19 +28,22 @@ class EduMiseDane extends GSController
 	stav = null;
 	posledniCtvrtleti = null;
 	posledniRok = null;
+	citadela = false;
 
 	function Start();
 	function Save() {
 		return {
 			stav = this.stav,
 			ctvrtleti = this.posledniCtvrtleti,
-			rok = this.posledniRok
+			rok = this.posledniRok,
+			citadela = this.citadela
 		};
 	}
 	function Load(version, data) {
 		if ("stav" in data) this.stav = data.stav;
 		if ("ctvrtleti" in data) this.posledniCtvrtleti = data.ctvrtleti;
 		if ("rok" in data) this.posledniRok = data.rok;
+		if ("citadela" in data) this.citadela = data.citadela;
 	}
 }
 
@@ -179,6 +182,16 @@ function EduMiseDane::ProKazdouFirmu(akce, rok)
 	}
 }
 
+/** Nejvetsi mesto (sidlo starosty mapy) se jmenuje Citadela. Jen jednou za hru. */
+function EduMiseDane::PojmenujCitadelu()
+{
+	local mesta = GSTownList();
+	if (mesta.IsEmpty()) return;
+	mesta.Valuate(GSTown.GetPopulation);
+	mesta.Sort(GSList.SORT_BY_VALUE, GSList.SORT_DESCENDING);
+	GSTown.SetName(mesta.Begin(), "Citadela");
+}
+
 function EduMiseDane::Start()
 {
 	this.sazba = GSController.GetSetting("sazba");
@@ -186,6 +199,10 @@ function EduMiseDane::Start()
 	if (this.stav == null) this.stav = {};
 	if (this.posledniCtvrtleti == null) this.posledniCtvrtleti = this.Ctvrtleti();
 	if (this.posledniRok == null) this.posledniRok = this.Rok();
+	if (!this.citadela) {
+		this.PojmenujCitadelu();
+		this.citadela = true;
+	}
 
 	while (true) {
 		local ctvrtleti = this.Ctvrtleti();

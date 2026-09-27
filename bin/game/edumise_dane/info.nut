@@ -3,9 +3,9 @@ class EduMiseDane extends GSInfo {
 	function GetName()        { return "EduMise — daně"; }
 	function GetShortName()   { return "EMDA"; }
 	function GetDescription() { return "Daň z příjmů podle českého modelu: 21 % ze zisku, roční zúčtování, čtvrtletní zálohy a odpočet ztráty z minulých let."; }
-	function GetVersion()     { return 2; }
+	function GetVersion()     { return 3; }
 	function GetAPIVersion()  { return "16"; }
-	function GetDate()        { return "2026-09-13"; }
+	function GetDate()        { return "2026-09-27"; }
 	function CreateInstance() { return "EduMiseDane"; }
 	function UseAsRandomAI()  { return false; }
 
