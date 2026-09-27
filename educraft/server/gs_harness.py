@@ -15,6 +15,7 @@ Python 3 stdlib only. Nothing leaves 127.0.0.1.
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import struct
@@ -23,6 +24,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+from game_client import NEW_COMPANY, SPECTATOR, GameClient, JoinRefused, cstr, i64, newgrf_version, u8, u16, u32
 
 ROOT = Path(__file__).resolve().parents[2]
 GAME = "ctest00000001"
@@ -98,6 +101,8 @@ class Admin:
 
     def handle(self, ptype, r):
         if ptype == S_WELCOME:
+            r.string()
+            self.revision = r.string()  # the network revision a game client must send
             self.welcome = True
         elif ptype == S_ERROR:
             raise RuntimeError(f"admin error {r.u8()}")
@@ -169,8 +174,40 @@ class Admin:
         self.pump_until(lambda: sum(1 for m in self.gs[since:] if m["t"] == "fin") >= first["pgs"], 15, "fin pages")
         return {co["c"]: co for m in self.gs[since:] if m["t"] == "fin" for co in m["co"]}
 
+    def names(self):
+        """Current company names, from a fresh report (all pages)."""
+        since = self.mark()
+        self.to_gs({"t": "report", "what": "fin"})
+        first = self.expect(since, lambda m: m["t"] == "names", what="names")
+        self.pump_until(lambda: sum(1 for m in self.gs[since:] if m["t"] == "names") >= first["pgs"], 15, "names pages")
+        return {c: n for m in self.gs[since:] if m["t"] == "names" for c, n in m["co"]}
+
     def state(self):
         return self.ask({"t": "hello", "v": 1}, "state")
+
+    def wait(self, seconds):
+        """Keep the admin connection served for a while."""
+        self.none_within(self.mark(), lambda m: False, seconds)
+
+    def playas(self, client_id):
+        """The client's company as the server has it (`clients` prints company + 1)."""
+        for line in self.rcon("clients"):
+            m = re.match(r"Client #(\d+)\s+name: '.*'\s+company: (\d+)", line)
+            if m and int(m.group(1)) == client_id:
+                n = int(m.group(2))
+                return n if n == SPECTATOR else n - 1
+        return None
+
+
+def needs_per_month(msgs, company):
+    """Count `need`s per game month; every `fin` page carries the date it was sent."""
+    month, counts = None, {}
+    for x in msgs:
+        if x["t"] == "fin":
+            month = x["d"][:7]
+        elif x["t"] == "need" and x["c"] == company:
+            counts[month] = counts.get(month, 0) + 1
+    return counts
 
 
 def free_port():
@@ -342,6 +379,7 @@ class Harness:
 
         # Rescue: below the native predicate minus the buffer.
         m = a.mark()
+        a.fin()  # month marker for needs_per_month
         a.ask({"t": "debug", "c": c0, "p": -8000}, "debug")
         need = a.expect(m, lambda x: x["t"] == "need" and x["c"] == c0, 30, "need")
         buffer = need["p"] - (need["loan"] - need["ml"] - need["cash"])
@@ -351,10 +389,21 @@ class Harness:
         f = a.fin()[c0]
         c("rescue lifts the company to the predicate plus buffer",
           ack["ok"] and f["cash"] - f["loan"] == -f["ml"] + buffer, (ack, f))
+        for _ in range(3):  # daily running costs right after the rescue
+            a.ask({"t": "debug", "c": c0, "p": -40}, "debug")
+            a.none_within(m, lambda x: False, 2.5)
+        per_month = needs_per_month(a.gs[m:], c0)
+        c("after a rescue, daily costs send no second need in the same month",
+          per_month and max(per_month.values()) == 1, per_month)
 
-        li = a.ask({"t": "debug", "c": c1, "p": -500, "reinit": True}, "loaninit", c=c1)
-        c("loan-init top-up after a native charge still ends at 0/0",
+        li = a.ask({"t": "debug", "c": c1, "p": -46, "reinit": True}, "loaninit", c=c1)
+        c("loan-init top-up after a native charge (a month of interest) still ends at 0/0",
           li["ok"] and li["cash"] == 0 and li["loan"] == 0 and a.fin()[c1]["cash"] == 0, li)
+        li = a.ask({"t": "debug", "c": c1, "p": -500, "reinit": True}, "loaninit", c=c1)
+        c("loan-init does not refund pupil spending: ok:false, cash stays -500",
+          not li["ok"] and li["cash"] == -500 and a.fin()[c1]["cash"] == -500, li)
+        li = a.ask({"t": "debug", "c": c1, "p": 500}, "loaninit", c=c1)
+        c("pending loan-init completes once the gap is closed", li["ok"] and a.fin()[c1]["cash"] == 0, li)
 
         # Hold: the current op completes first, then nothing applies until the session runs again.
         m = a.mark()
@@ -368,6 +417,14 @@ class Harness:
         a.to_gs({"t": "op", "seq": self.seq + 1, "k": "noop"})
         n = a.expect(m, lambda x: x["t"] == "nack")
         c("ops nacked held while held", n["r"] == "held", n)
+        # Held: no GS money work either (loan-init, taxes: both run in Running()) until resumed.
+        m = a.mark()
+        a.ask({"t": "debug", "c": c1, "p": -46, "reinit": True}, "debug")
+        c("no loan-init while held", a.none_within(m, lambda x: x["t"] == "loaninit", 5))
+        m = a.mark()
+        a.to_gs({"t": "session", "run": True, "sid": "s1", "months": 24})
+        li = a.expect(m, lambda x: x["t"] == "loaninit" and x["c"] == c1, what="loaninit after the hold")
+        c("loan-init right after the hold ends", li["ok"] and a.fin()[c1]["cash"] == 0, li)
 
         # Quiesced save, like the bridge: hold, save, then restart from that save.
         saved_state = a.state()  # hello also ends the hold; hold again for the save
@@ -412,6 +469,8 @@ class Harness:
         a.pump_until(lambda: not a.state()["paused"], 15, "resume after watchdog")
         c("session run resumes after watchdog", True)
 
+        self.client_hooks(a, srv, c0, town)
+
         if slow:
             self.bankruptcy_hold(a, c1)
 
@@ -438,6 +497,81 @@ class Harness:
         c("no script errors or oversized admin messages",
           "GSAdmin.Send failed" not in log and "Your script made an error" not in log,
           [x for x in log.splitlines() if "error" in x.lower()][-10:])
+
+    def client_hooks(self, a, srv, other, town):
+        """§5 tests 1, 2 and 5 through a real game socket: what a pupil's client sends."""
+        c = self.check
+        grf = newgrf_version(srv.openttd)
+        new_company = lambda cl: cl.command(SPECTATOR, "CompanyControl", u8(0), u8(0xFF), u8(0), u32(cl.client_id))
+
+        a.rcon(f"setting network.max_companies {len(a.fin())}")
+        try:
+            pa = GameClient(srv.port, a.revision, grf, "pupil-a", NEW_COMPANY)
+            joined = a.playas(pa.client_id)
+        except JoinRefused as e:
+            pa, joined = None, str(e)
+        a.rcon("setting network.max_companies 15")
+        c("join as NEW_COMPANY on a full server -> spectator, not ServerFull", joined == SPECTATOR, joined)
+        if pa is None:
+            return
+
+        m = a.mark()
+        new_company(pa)
+        c("CompanyControl New without a 'new' admission founds nothing",
+          a.none_within(m, lambda x: x["t"] == "company" and x["ev"] == "new", 5))
+
+        a.rcon(f"edu_admit {pa.client_id} new")
+        m = a.mark()
+        new_company(pa)
+        h = a.expect(m, lambda x: x["t"] == "company" and x["ev"] == "new", what="company founded by the client")["c"]
+        a.expect(m, lambda x: x["t"] == "loaninit" and x["c"] == h, what="loaninit of the client's company")
+        c("with a 'new' admission the client founds one company and sits in it", a.playas(pa.client_id) == h)
+        a.rcon(f"edu_admit {pa.client_id} {h + 1}")  # what the bridge does after POST /companies
+
+        pb = GameClient(srv.port, a.revision, grf, "pupil-b")
+        pb.move(h)
+        a.wait(3)
+        c("a client without an admission cannot move into a company", a.playas(pb.client_id) == SPECTATOR)
+        a.rcon(f"edu_admit {pb.client_id} spectator")
+        pb.move(h)
+        a.wait(3)
+        c("a spectator admission cannot move into a foreign company", a.playas(pb.client_id) == SPECTATOR)
+
+        # Gated commands from the client socket; a loan from the same socket proves commands get through.
+        a.ask({"t": "bind", "c": h, "s": 3}, "bound", c=h)
+        self.op(a, "deposit", s=3, c=h, p=5000)
+        f0, n0 = a.fin()[h], a.names()[h]
+        free = next(x for x in range(16) if x not in {v["col"] for v in a.fin().values()})
+        gated = [("RenamePresident", cstr("Hacker")), ("RenameCompany", cstr("Hacker a.s.")),
+                 ("SetCompanyColour", u8(0), u8(1), u8(free)), ("GiveMoney", i64(1000), u8(other)),
+                 ("BuyCompany", u8(other), u8(0)), ("TownAction", u16(town), u8(2)), ("TownAction", u16(town), u8(4))]
+        for cmd in gated:
+            pa.command(h, *cmd)
+        pa.command(h, "IncreaseLoan", u8(2), i64(3481))
+        a.pump_until(lambda: a.fin()[h]["loan"] == 3481, 15, "loan taken by the client")
+        f1, n1 = a.fin()[h], a.names()[h]
+        dropped = sum(1 for x in pa.chat if "peněžence" in x)
+        c("gated commands from a client are not executed (name, colour, cash unchanged), a loan is",
+          f1["cash"] == f0["cash"] + 3481 and f1["col"] == f0["col"] and n1 == n0 and dropped == len(gated),
+          (f0, f1, n0, n1, pa.chat))
+
+        # A removed company's id goes to the next new company; an old admission must not lead into it.
+        pa.move(SPECTATOR)
+        a.wait(2)
+        m = a.mark()
+        a.rcon(f"reset_company {h + 1}")
+        a.expect(m, lambda x: x["t"] == "company" and x["ev"] == "removed" and x["c"] == h, what="company removed")
+        a.rcon(f"edu_admit {pb.client_id} new")
+        m = a.mark()
+        new_company(pb)
+        h2 = a.expect(m, lambda x: x["t"] == "company" and x["ev"] == "new", what="company founded by client b")["c"]
+        pa.move(h2)
+        a.wait(3)
+        c("a stale admission to a removed company gives no way into the company reusing its id",
+          h2 == h and a.playas(pa.client_id) == SPECTATOR and a.playas(pb.client_id) == h2, (h, h2))
+        c("the test clients were never kicked", not pa.closed and not pb.closed, pa.chat + pb.chat)
+        pa.close()
+        pb.close()
 
     def bankruptcy_hold(self, a, company):
         """Insolvent for 13 game months: stays at the warnings, never offered or removed."""

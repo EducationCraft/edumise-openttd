@@ -16,6 +16,9 @@ const EDU_RING = 64;
 const EDU_WATCHDOG_TICKS = 2000;   // ~54 s without any bridge message
 const EDU_CZK = 41;                // OpenTTD CZK display multiplier
 const EDU_MIN_BUFFER = 1000;       // rescue buffer floor, pounds
+/* Largest loan-init top-up, pounds: one month of interest on £13,924 at 4 % (£47) plus the
+ * monthly fee (Price::StationValue >> 2, £25), with headroom. */
+const EDU_NATIVE_CHARGES = 100;
 
 function EduMiseDane::F(m, k)
 {
@@ -174,7 +177,9 @@ function EduMiseDane::PenezenkaLoop()
 				/* Bridge gone: stop the clock; the next session{run:true} resumes. */
 				GSLog.Warning("Bridge watchdog: no message for " + EDU_WATCHDOG_TICKS + " ticks, pausing.");
 				GSGame.Pause();
-			} else {
+			} else if (!this.held) {
+				/* A hold is handled only between two Running() calls, so a tax or loan-init
+				 * pass in flight is complete before `held`, and nothing starts until resume. */
 				this.Running();
 			}
 		}
@@ -391,8 +396,9 @@ function EduMiseDane::Apply(m)
 	switch (k) {
 		case "deposit":
 		case "rescue":
+			/* A rescue leaves needMonth alone: it lands exactly on the trigger line, so the
+			 * next day's costs would ask again. The next need comes in a later month. */
 			if (typeof p != "integer" || p <= 0 || !this.Give(c, p)) return "invalid";
-			if (k == "rescue" && c in this.needMonth) delete this.needMonth[c];
 			GSNews.Create(GSNews.NT_ECONOMY,
 				(k == "deposit" ? "Vklad z peněženky: " : "Záchranná půjčka: ") + this.Kc(p) + " Kč",
 				c, GSNews.NR_NONE, 0);
@@ -437,7 +443,11 @@ function EduMiseDane::PaidTownAction(c, town, action)
 
 /* ------------------------------------------------------ loan and rescue */
 
-/** New companies start at 0 cash / 0 loan: top up to the loan, then repay it all. */
+/**
+ * New companies start at 0 cash / 0 loan: top up to the loan, then repay it all.
+ * The top-up absorbs only native charges; a bigger gap is pupil spending, which must
+ * not come back as free money, so it goes to a human (ok:false).
+ */
 function EduMiseDane::LoanInit()
 {
 	foreach (c, _ in clone this.w.loanPending) {
@@ -446,8 +456,9 @@ function EduMiseDane::LoanInit()
 			continue;
 		}
 		local f = this.Money(c);
-		local delta = f.loan - f.cash; // absorbs native charges (bank fee, interest) before we ran
-		if (abs(delta) <= GSCompany.GetLoanInterval() && (delta == 0 || this.Give(c, delta)) && this.RepayLoan(c)) {
+		local delta = f.loan - f.cash;
+		if (delta <= EDU_NATIVE_CHARGES && -delta <= GSCompany.GetLoanInterval()
+				&& (delta == 0 || this.Give(c, delta)) && this.RepayLoan(c)) {
 			f = this.Money(c);
 			if (f.cash == 0 && f.loan == 0) {
 				delete this.w.loanPending[c];

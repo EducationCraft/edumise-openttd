@@ -113,9 +113,12 @@ loopback ports in a temp dir with `educraft/server/openttd.cfg` plus three test-
 changes (insecure admin login with a password, GS setting `ladeni=1`, the ports) and
 plays the bridge over the admin port: deposits, dedup, gaps, bindings, cosmetics with
 cost compensation, loan-init, rescue, hold, save/load, watchdog and the session limit.
-The client-socket hooks (A3, A5) are covered by unit tests of their decision functions
-only: a native client needs SDL2, and a scripted game client would need the game
-protocol's encryption. The end-to-end check is the two-browser rehearsal of part B.
+The client-socket hooks (A3, A5) are tested through `educraft/server/game_client.py`, a
+scripted game client that joins over the real, encrypted game protocol (monocypher's
+X25519 + XChaCha20-Poly1305 in pure Python) and sends raw moves and commands: a
+`NEW_COMPANY` join on a full server, moves and `CompanyControl New` without admission,
+gated commands next to an ungated loan, and a stale admission after `reset_company`.
+It reads packet and command numbers from the C++ headers.
 
 `educraft/server/openttd.cfg` is the server config (§5 A6, §6.2). Its `[version]
 ini_version` line matters: without it OpenTTD treats the file as older than the
@@ -130,8 +133,10 @@ the tax script the web single-player uses. `ladeni` enables test-only `debug` me
 and must stay 0 on servers.
 
 Loan-init tops a new company up to its current loan (`delta = loan − cash`) and repays it
-all. With the untouched initial loan that is the contract's `13924 − cash`; it also ends
-at 0/0 when a pupil repaid part of the loan before the script ran.
+all. With the untouched initial loan that is `13924 − cash`; it also ends at 0/0 when a
+pupil repaid part of the loan before the script ran. The top-up is capped at £100, which
+covers the native charges (a month of interest and the monthly fee); a bigger gap is pupil
+spending and goes to a human as `loaninit ok:false` instead of being refunded.
 
 ### Upstream diff
 
@@ -141,6 +146,7 @@ at 0/0 when a pupil repaid part of the loan before the script ran.
 | `src/table/settings/network_settings.ini`, `src/settings_type.h` | A2: `network.edu_wallet_mode` (server-only, not saved, default off). |
 | `src/network/network_edu.{h,cpp}`, `src/network/CMakeLists.txt` | A3/A5 logic: gated commands, admission map. New files, no upstream conflict. |
 | `src/network/network_server.cpp` | Hooks, each behind `edu_wallet_mode`: join forced to spectator (A5a), gated client commands dropped with a chat line (A3), moves only as admitted, with the company allow-list skipped (A5b), `CompanyControl New` only with a `new` admission (A5c), admission erased on disconnect. |
+| `src/company_cmd.cpp` | A5: `Company::PostDestructor` drops company admissions to the removed company, whose id the next new company reuses. |
 | `src/console_cmds.cpp` | A5d: `edu_admit <client-id> <company-id\|new\|spectator>`, server only. |
 | `src/script/api/script_town.{hpp,cpp}`, `game_changelog.hpp` | A4: `GSTown.GetTownActionCost(action)`, the exact native cost formula. |
 | `src/table/settings/economy_settings.ini`, `src/settings_type.h`, `src/economy.cpp` | A7: `economy.edu_bankruptcy_hold` caps `months_of_bankruptcy` at 3, so an insolvent company is never offered for sale or removed. |
