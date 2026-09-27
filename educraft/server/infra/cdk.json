@@ -1,0 +1,10 @@
+{
+  "app": "node -r ts-node/register bin/doprava.ts",
+  "context": {
+    "imageTag": "",
+    "certificateArn": "",
+    "adminPublicKey": "",
+    "walletClientId": "",
+    "walletBase": "https://api.educraft.cz/wallet"
+  }
+}
