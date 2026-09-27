@@ -14,6 +14,7 @@
 #include "network_server.h"
 #include "network_udp.h"
 #include "network_base.h"
+#include "network_edu.h"
 #include "../console_func.h"
 #include "../company_base.h"
 #include "../command_func.h"
@@ -212,6 +213,7 @@ ServerNetworkGameSocketHandler::~ServerNetworkGameSocketHandler()
 
 	if (_redirect_console_to_client == this->client_id) _redirect_console_to_client = ClientID::Invalid;
 	OrderBackup::ResetUser(this->client_id);
+	EduForgetClient(this->client_id);
 
 	if (this->savegame != nullptr) {
 		this->savegame->Destroy();
@@ -929,6 +931,8 @@ NetworkRecvStatus ServerNetworkGameSocketHandler::ReceiveClientIdentify(Packet &
 
 	std::string client_name = p.Recv_string(NETWORK_CLIENT_NAME_LENGTH);
 	CompanyID playas = (Owner)p.Recv_uint8();
+	/* EduCraft: everyone joins as spectator; the bridge admits them with edu_admit. */
+	if (_settings_client.network.edu_wallet_mode) playas = COMPANY_SPECTATOR;
 
 	if (this->HasClientQuit()) return NetworkRecvStatus::ClientQuit;
 
@@ -1153,6 +1157,11 @@ NetworkRecvStatus ServerNetworkGameSocketHandler::ReceiveClientCommand(Packet &p
 		return this->SendError(NetworkErrorCode::CompanyMismatch);
 	}
 
+	if (_settings_client.network.edu_wallet_mode && EduIsGatedCommand(cp.cmd, cp.data)) {
+		NetworkServerSendChat(NetworkAction::ServerMessage, NetworkChatDestinationType::Client, to_underlying(ci->client_id), EDU_GATED_MESSAGE, ClientID::Server);
+		return NetworkRecvStatus::Okay;
+	}
+
 	if (cp.cmd == Commands::CompanyControl) {
 		if (cca != CompanyCtrlAction::New || cp.company != COMPANY_SPECTATOR) {
 			return this->SendError(NetworkErrorCode::Cheater);
@@ -1163,6 +1172,8 @@ NetworkRecvStatus ServerNetworkGameSocketHandler::ReceiveClientCommand(Packet &p
 			NetworkServerSendChat(NetworkAction::ServerMessage, NetworkChatDestinationType::Client, to_underlying(ci->client_id), "cannot create new company, server full", ClientID::Server);
 			return NetworkRecvStatus::Okay;
 		}
+
+		if (_settings_client.network.edu_wallet_mode && !EduConsumeNewCompany(ci->client_id)) return NetworkRecvStatus::Okay;
 	}
 
 	if (cp.cmd == Commands::CompanyAllowListControl) {
@@ -1528,6 +1539,8 @@ NetworkRecvStatus ServerNetworkGameSocketHandler::ReceiveClientMove(Packet &p)
 	CompanyID company_id = (Owner)p.Recv_uint8();
 
 	Debug(Facility::Net, Severity::Trace3, "client[{}] ReceiveClientMove(): company_id={}", this->client_id, company_id);
+
+	if (_settings_client.network.edu_wallet_mode && !EduMayMove(EduGetAdmission(this->client_id), company_id)) return NetworkRecvStatus::Okay;
 
 	/* Check if the company is valid, we don't allow moving to AI companies */
 	if (company_id != COMPANY_SPECTATOR) {
