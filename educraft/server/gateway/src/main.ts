@@ -94,6 +94,8 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     log('info', 'SIGTERM: final save');
+    // ECS kills the container at stopTimeout (120 s); leave before that, whatever is pending.
+    setTimeout(() => process.exit(0), 110_000).unref();
     bridge
       .shutdown()
       .catch((e) => log('error', 'shutdown failed', { err: String(e) }))
