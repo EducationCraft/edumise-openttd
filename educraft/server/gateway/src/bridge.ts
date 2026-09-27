@@ -465,6 +465,15 @@ export class Bridge {
     }
   }
 
+  private async drainResults(ms: number): Promise<void> {
+    const end = Date.now() + ms;
+    while (this.results.length && Date.now() < end) {
+      for (const r of this.results) r.nextAt = 0;
+      await this.flushResults();
+      if (this.results.length) await sleep(1_000);
+    }
+  }
+
   // ---------------------------------------------------------------- GS messages
 
   onGs(json: string): void {
@@ -726,6 +735,8 @@ export class Bridge {
     const iso = new Date().toISOString().replace(/[:.]/g, '-');
     copyFileSync(join(saveDir, 'current.sav'), join(this.dataDir, 'snapshots', `${iso}.sav`));
     copyFileSync(join(saveDir, 'current.seq'), join(this.dataDir, 'snapshots', `${iso}.seq`));
+    // Results first: /saved commits only ops the wallet already knows as applied (§4.6).
+    await this.drainResults(30_000);
     await this.postSaved(h.last, true, 20);
   }
 

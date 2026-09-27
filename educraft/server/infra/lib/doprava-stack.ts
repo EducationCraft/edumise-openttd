@@ -3,7 +3,7 @@
  * desiredCount 0 until the wallet starts a session (ecs:UpdateService, §6.6).
  * Shared: VPC (public subnets, no NAT), cluster, ALB with a path rule per game, EFS, ECR.
  */
-import { Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
@@ -79,6 +79,8 @@ export class DopravaStack extends Stack {
       defaultAction: elbv2.ListenerAction.fixedResponse(404, { contentType: 'text/plain', messageBody: 'not found' }),
       open: false,
     });
+
+    new CfnOutput(this, 'AlbDns', { value: alb.loadBalancerDnsName, description: 'doprava.edumise.educraft.cz → this' });
 
     const fsSg = new ec2.SecurityGroup(this, 'EfsSg', { vpc, description: 'edumise-doprava EFS' });
     fsSg.addIngressRule(taskSg, ec2.Port.tcp(2049), 'NFS from game tasks');

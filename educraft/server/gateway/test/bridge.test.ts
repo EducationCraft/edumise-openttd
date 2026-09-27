@@ -238,6 +238,21 @@ describe('saves (§4.5 steps 8, 9, 12)', () => {
     expect(w.of('POST', '/saved').at(-1)!.body).toEqual({ lastSeq: 9, final: true });
   });
 
+  it('SIGTERM delivers pending op results before saved{final}', async () => {
+    let n = 0;
+    w.ops = [deposit(1)];
+    w.override.set('POST /ops/:n/result', () => (n++ < 1 ? { status: 503, body: { error: 'busy' } } : undefined));
+    await b.attach(gs);
+    await run(2_000);
+    writeFileSync(join(dir, 'save', 'current.sav'), 'map');
+    const done = b.shutdown();
+    await run(5_000);
+    await done;
+    const order = w.calls.map((c) => `${c.method} ${c.path}`).filter((c) => c.startsWith('POST /ops/1') || c.startsWith('POST /saved'));
+    expect(order).toEqual(['POST /ops/1/result', 'POST /ops/1/result', 'POST /saved']);
+    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 1, final: true });
+  });
+
   it('SIGTERM without held skips the final save', async () => {
     await b.attach(gs);
     gs.ignoreHold = true;
