@@ -25,6 +25,16 @@ export interface AdminLink {
   close(): void;
 }
 
+export interface Welcome {
+  serverName: string;
+  revision: string;
+  seed: number;
+  landscape: number;
+  startDate: number;
+  mapX: number;
+  mapY: number;
+}
+
 export const GS_MAX_BYTES = 1450;
 const RCON_TIMEOUT_MS = 30_000;
 
@@ -46,7 +56,7 @@ export class AdminClient implements AdminLink {
   ) {}
 
   /** Resolves after ServerWelcome, with the update frequencies registered. */
-  connect(host: string, port: number): Promise<void> {
+  connect(host: string, port: number): Promise<Welcome> {
     return new Promise((resolve, reject) => {
       let welcomed = false;
       this.sock = net.connect({ host, port });
@@ -61,10 +71,11 @@ export class AdminClient implements AdminLink {
           let pkts = this.frames.push(chunk);
           while (pkts.length) {
             for (const p of pkts) {
-              if (this.handle(p.type, new Reader(p.payload)) === 'welcome' && !welcomed) {
+              const w = this.handle(p.type, new Reader(p.payload));
+              if (w && !welcomed) {
                 welcomed = true;
                 this.afterWelcome();
-                resolve();
+                resolve(w);
               }
             }
             pkts = this.frames.push(new Uint8Array(0));
@@ -114,8 +125,8 @@ export class AdminClient implements AdminLink {
     this.send(Admin.Poll, new Writer().u8(UpdateType.CompanyInfo).u32(0xffffffff).build());
   }
 
-  /** Returns 'welcome' when the handshake finished. */
-  private handle(type: number, r: Reader): 'welcome' | undefined {
+  /** Returns the welcome when the handshake finished. */
+  private handle(type: number, r: Reader): Welcome | undefined {
     switch (type) {
       case Server.AuthRequest: {
         const method = r.u8();
@@ -143,8 +154,13 @@ export class AdminClient implements AdminLink {
       case Server.Banned:
       case Server.Shutdown:
         throw new Error(`admin port closed by server (${type})`);
-      case Server.Welcome:
-        return 'welcome';
+      case Server.Welcome: {
+        const serverName = r.str();
+        const revision = r.str();
+        r.bool(); // dedicated
+        r.str(); // formerly the map name
+        return { serverName, revision, seed: r.u32(), landscape: r.u8(), startDate: r.u32(), mapX: r.u16(), mapY: r.u16() };
+      }
       case Server.GameScript:
         this.events.gs(r.str());
         return;

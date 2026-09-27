@@ -85,7 +85,7 @@ function fakeServer(authorized: Uint8Array, onReady: (send: (t: number, p: Uint8
       enc = new AeadStream(s2c, encNonce);
       // Protocol + Welcome in one write, right behind the plaintext EnableEncryption.
       send(Server.Protocol, new Writer().u8(3).u8(0).build());
-      send(Server.Welcome, new Writer().str('srv').build());
+      send(Server.Welcome, new Writer().str('srv').str('rev').u8(1).str('').u32(42).u8(0).u32(712247).u16(256).u16(256).build());
       onReady(send, got);
     })();
   });
@@ -114,7 +114,7 @@ describe('AdminClient against a fake admin port', () => {
       gs: (j) => seen.push(`gs ${j}`),
       clientInfo: (id, host, playas) => seen.push(`info ${id} ${host} ${playas}`),
     }));
-    await client.connect('127.0.0.1', port);
+    expect(await client.connect('127.0.0.1', port)).toMatchObject({ seed: 42, mapX: 256, revision: 'rev' });
     await ready;
     const freq = await serverSide.got(Admin.UpdateFrequency);
     expect([freq.u16(), freq.u16()]).toEqual([1, 64]);
