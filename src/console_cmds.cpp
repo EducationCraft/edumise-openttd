@@ -20,6 +20,7 @@
 #include "network/network_base.h"
 #include "network/network_admin.h"
 #include "network/network_client.h"
+#include "network/network_edu.h"
 #include "command_func.h"
 #include "settings_func.h"
 #include "fios.h"
@@ -1084,6 +1085,45 @@ static bool ConMoveClient(std::span<std::string_view> argv)
 	/* we are the server, so force the update */
 	NetworkServerDoMove(ci->client_id, *company_id);
 
+	return true;
+}
+
+/** EduCraft: decide what a client may join (network/network_edu.h). @copydoc IConsoleCmdProc */
+static bool ConEduAdmit(std::span<std::string_view> argv)
+{
+	if (argv.size() < 3) {
+		IConsolePrint(CC_HELP, "Admit a client in wallet mode. Usage: 'edu_admit <client-id> <company-id|new|spectator>'.");
+		IConsolePrint(CC_HELP, "A company admission also moves the client there; 'new' allows founding one company.");
+		return true;
+	}
+
+	auto client_id = ParseType<ClientID>(argv[1]);
+	const NetworkClientInfo *ci = client_id.has_value() ? NetworkClientInfo::GetByClientID(*client_id) : nullptr;
+	if (ci == nullptr || ci->client_id == ClientID::Server) {
+		IConsolePrint(CC_ERROR, "Invalid client-id, check the command 'clients' for valid client-id's.");
+		return true;
+	}
+
+	EduAdmission admission;
+	if (argv[2] == "spectator") {
+		admission.kind = EduAdmission::Kind::Spectator;
+	} else if (argv[2] == "new") {
+		admission.kind = EduAdmission::Kind::New;
+	} else {
+		auto company_id = ParseCompanyID(argv[2]);
+		if (!company_id.has_value() || !Company::IsValidHumanID(*company_id)) {
+			IConsolePrint(CC_ERROR, "Company does not exist or is not a human company.");
+			return true;
+		}
+		admission.kind = EduAdmission::Kind::Company;
+		admission.company = *company_id;
+	}
+
+	EduSetAdmission(ci->client_id, admission);
+
+	CompanyID target = admission.kind == EduAdmission::Kind::Company ? admission.company : COMPANY_SPECTATOR;
+	if (ci->client_playas != target) NetworkServerDoMove(ci->client_id, target);
+	IConsolePrint(CC_DEFAULT, "Client #{} admitted: {}.", *client_id, argv[2]);
 	return true;
 }
 
@@ -3056,6 +3096,7 @@ void IConsoleStdLibRegister()
 	IConsole::AliasRegister("spectate",              "join 255");
 	IConsole::CmdRegister("move",                    ConMoveClient,       ConHookServerOnly);
 	IConsole::CmdRegister("reset_company",           ConResetCompany,     ConHookServerOnly);
+	IConsole::CmdRegister("edu_admit",               ConEduAdmit,         ConHookServerOnly);
 	IConsole::AliasRegister("clean_company",         "reset_company %A");
 	IConsole::CmdRegister("client_name",             ConClientNickChange, ConHookServerOnly);
 	IConsole::CmdRegister("kick",                    ConKick,             ConHookServerOnly);
