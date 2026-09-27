@@ -34,7 +34,10 @@ not allow them:
 - the `oncontextmenu` attribute on the canvas.
 
 Both are moved into `os/emscripten/openttd-shell.js`, which ships next to `openttd.html`.
-That is the whole reason this fork touches upstream files at all. The alternative, adding
+Apart from that, `src/settings.cpp` (`GameLoadConfig`, `__EMSCRIPTEN__` only) picks the
+`EduMise — daně` GameScript when none is configured, so a class never starts without taxes.
+The `.nut` files carry a UTF-8 BOM on purpose: without it Squirrel reads them as ASCII and
+Czech text comes out garbled. The alternative, adding
 `'unsafe-inline'` to `script-src`, would undo the main protection the policy gives.
 
 ## The gate
