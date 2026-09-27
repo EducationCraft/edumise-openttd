@@ -121,8 +121,11 @@ export class AdminClient implements AdminLink {
     for (const t of [UpdateType.ClientInfo, UpdateType.CompanyInfo, UpdateType.Gamescript]) {
       this.send(Admin.UpdateFrequency, new Writer().u16(t).u16(FREQ_AUTOMATIC).build());
     }
-    // Companies that already exist (names for /companies) — poll all.
-    this.send(Admin.Poll, new Writer().u8(UpdateType.CompanyInfo).u32(0xffffffff).build());
+    // Companies that already exist (names for /companies) and clients that joined or
+    // founded a company while no admin link was up (admission, §6.3) — poll all.
+    for (const t of [UpdateType.CompanyInfo, UpdateType.ClientInfo]) {
+      this.send(Admin.Poll, new Writer().u8(t).u32(0xffffffff).build());
+    }
   }
 
   /** Returns the welcome when the handshake finished. */

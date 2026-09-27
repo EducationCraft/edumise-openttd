@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -253,6 +253,41 @@ describe('saves (§4.5 steps 8, 9, 12)', () => {
     expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 1, final: true });
   });
 
+  it('SIGTERM retries the final finance on 5xx, then reports saved{final}', async () => {
+    await b.attach(gs);
+    let n = 0;
+    w.override.set('PUT /finance', (body) => (body.final && n++ < 2 ? { status: 503, body: { error: 'busy' } } : undefined));
+    writeFileSync(join(dir, 'save', 'current.sav'), 'map');
+    const done = b.shutdown();
+    await run(10_000);
+    await done;
+    expect(w.of('PUT', '/finance').filter((c) => c.body.final)).toHaveLength(3);
+    expect(w.of('POST', '/saved').at(-1)!.body).toMatchObject({ final: true });
+  });
+
+  it('SIGTERM without final finance saves, but never reports the session final', async () => {
+    await b.attach(gs);
+    gs.last = 3;
+    w.override.set('PUT /finance', (body) => (body.final ? { status: 503, body: { error: 'busy' } } : undefined));
+    writeFileSync(join(dir, 'save', 'current.sav'), 'map');
+    const done = b.shutdown();
+    await run(60_000);
+    await done;
+    expect(w.of('PUT', '/finance').filter((c) => c.body.final)).toHaveLength(5);
+    expect(gs.rcons.at(-1)).toBe('save current');
+    expect(w.of('POST', '/saved').map((c) => c.body)).toEqual([{ lastSeq: 3, final: false }]);
+    expect(logs.some((l) => l.level === 'error' && l.msg.includes('final finance not delivered'))).toBe(true);
+  });
+
+  it('a failing background save is logged, not an unhandled rejection', async () => {
+    await b.attach(gs);
+    rmSync(join(dir, 'save'), { recursive: true }); // current.seq cannot be written
+    b.onGs(JSON.stringify({ t: 'limit', months: 18 }));
+    await run(1_000);
+    expect(logs.some((l) => l.level === 'error' && l.msg === 'save failed')).toBe(true);
+    expect(b.saving).toBe(false);
+  });
+
   it('SIGTERM without held skips the final save', async () => {
     await b.attach(gs);
     gs.ignoreHold = true;
@@ -362,6 +397,35 @@ describe('admission (§6.3)', () => {
     b.onClientUpdate(8, 4);
     await run(1_000);
     expect(gs.rcons.slice(-2)).toEqual(['edu_admit 8 7', 'reset_company 5']);
+  });
+
+  it('already_bound to the same company (a retried POST that committed): binds, saves, admits', async () => {
+    w.override.set('POST /companies', () => ({ status: 409, body: { error: 'already_bound', company: 4 } }));
+    b.onClientInfo(8, '127.77.0.2');
+    await run(0);
+    b.onClientUpdate(8, 4);
+    await run(1_000);
+    expect(gs.of('bind')).toEqual([{ t: 'bind', c: 4, s: 2 }]);
+    expect(gs.rcons).toContain('save current');
+    expect(gs.rcons).not.toContain('reset_company 5');
+    expect(gs.rcons.at(-1)).toBe('edu_admit 8 5');
+  });
+
+  it('CLIENT_INFO poll after a reconnect binds a pupil who founded while the link was down', async () => {
+    b.onClientInfo(8, '127.77.0.2');
+    await run(0);
+    const admits = gs.rcons.length;
+    b.onClientInfo(8, '127.77.0.2', 255); // still a spectator: nothing to do
+    await run(0);
+    expect(gs.rcons).toHaveLength(admits);
+    b.onClientInfo(8, '127.77.0.2', 4);
+    await run(1_000);
+    expect(w.of('POST', '/companies')[0].body).toMatchObject({ slot: 2, company: 4 });
+    expect(gs.of('bind')).toEqual([{ t: 'bind', c: 4, s: 2 }]);
+    b.onClientInfo(7, '127.77.0.1', 0);
+    b.onClientInfo(7, '127.77.0.1', 0);
+    await run(0);
+    expect(gs.rcons.filter((c) => c === 'edu_admit 7 1')).toHaveLength(1);
   });
 
   it('company_taken: re-runs hello, retries once, then spectator + reset', async () => {

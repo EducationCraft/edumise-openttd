@@ -120,6 +120,8 @@ describe('AdminClient against a fake admin port', () => {
     expect([freq.u16(), freq.u16()]).toEqual([1, 64]);
     const poll = await serverSide.got(Admin.Poll);
     expect([poll.u8(), poll.u32()]).toEqual([2, 0xffffffff]);
+    const clientPoll = await serverSide.got(Admin.Poll);
+    expect([clientPoll.u8(), clientPoll.u32()]).toEqual([1, 0xffffffff]);
 
     const rcon = client.rcon('save current');
     const cmd = await serverSide.got(Admin.Rcon);

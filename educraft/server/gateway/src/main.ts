@@ -63,7 +63,7 @@ async function main(): Promise<void> {
       let attached = false;
       const admin = new AdminClient(secret, {
         gs: (json) => bridge.onGs(json),
-        clientInfo: (id, host) => bridge.onClientInfo(id, host),
+        clientInfo: (id, host, playas) => bridge.onClientInfo(id, host, playas),
         clientUpdate: (id, playas) => bridge.onClientUpdate(id, playas),
         clientQuit: (id) => bridge.onClientQuit(id),
         companyNew: () => undefined, // the CLIENT_UPDATE that follows carries the company

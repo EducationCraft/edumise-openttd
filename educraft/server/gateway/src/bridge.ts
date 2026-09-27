@@ -126,7 +126,7 @@ export class Bridge {
   ) {}
 
   start(): void {
-    this.interval ??= setInterval(() => void this.tick(), T.tick);
+    this.interval ??= setInterval(() => this.bg(this.tick(), 'tick'), T.tick);
   }
 
   stop(): void {
@@ -153,6 +153,11 @@ export class Bridge {
   }
 
   // ---------------------------------------------------------------- helpers
+
+  /** Background work: an unhandled rejection would kill the gateway and the task with it. */
+  private bg(p: Promise<unknown>, what: string): void {
+    p.catch((e) => this.log('error', `${what} failed`, { err: String(e) }));
+  }
 
   private gs(msg: object): void {
     this.admin?.gs(msg);
@@ -329,7 +334,7 @@ export class Bridge {
       await this.poll();
     }
     if (!this.saving && !this.limited && now - this.lastSaveAt >= T.saveEvery) {
-      void this.save({ resume: true });
+      this.bg(this.save({ resume: true }), 'save');
     }
     if (this.limitAt !== null && !this.limitStopSent && now - this.limitAt >= T.limitStop) {
       this.limitStopSent = true;
@@ -523,7 +528,7 @@ export class Bridge {
         this.limited = true;
         this.sendBlocked = true;
         this.limitAt = Date.now();
-        void this.save({ resume: false });
+        this.bg(this.save({ resume: false }), 'save');
         return;
       default:
         this.log('warn', 'unknown GS message', { t: m.t });
@@ -616,12 +621,27 @@ export class Bridge {
     await done;
   }
 
-  private async reportFinance(final: boolean): Promise<void> {
+  /** `attempts` > 1 retries the PUT on network errors, 5xx and 429 (the final report, §3.6). */
+  private async reportFinance(final: boolean, attempts = 1): Promise<void> {
     const got = this.waitGs((m) => m.t === '$fin', T.reportWait);
     this.gs({ t: 'report', what: 'fin' });
     const rep = await got;
-    const r = await this.wcall('PUT', '/finance', { gameDate: rep.gameDate, final, companies: rep.companies });
-    if (r.status !== 200) throw new Error(`PUT /finance HTTP ${r.status}`);
+    const body = { gameDate: rep.gameDate, final, companies: rep.companies };
+    let err = '';
+    for (let i = 1; i <= attempts; i++) {
+      if (i > 1) await sleep(2_000 * (i - 1));
+      let r: WalletResp;
+      try {
+        r = await this.wcall('PUT', '/finance', body);
+      } catch (e) {
+        err = String(e);
+        continue;
+      }
+      if (r.status === 200) return;
+      err = `PUT /finance HTTP ${r.status}`;
+      if (r.status < 500 && r.status !== 429) break;
+    }
+    throw new Error(err);
   }
 
   // ---------------------------------------------------------------- save (§4.5 step 8)
@@ -724,10 +744,14 @@ export class Bridge {
       this.log('warn', 'no held at shutdown: session not final, settle needs another session');
       return;
     }
+    // Without finalFinance a final session would sell every company at 0 (§3.6): then the
+    // save is still taken, but reported non-final so settle asks for another session.
+    let final = true;
     try {
-      await this.reportFinance(true);
+      await this.reportFinance(true, 5);
     } catch (e) {
-      this.log('error', 'final finance not delivered', { err: String(e) });
+      final = false;
+      this.log('error', 'final finance not delivered: session not final, settle needs another session', { err: String(e) });
     }
     if (!(await this.rconSave())) return;
     const saveDir = join(this.dataDir, 'save');
@@ -737,13 +761,20 @@ export class Bridge {
     copyFileSync(join(saveDir, 'current.seq'), join(this.dataDir, 'snapshots', `${iso}.seq`));
     // Results first: /saved commits only ops the wallet already knows as applied (§4.6).
     await this.drainResults(30_000);
-    await this.postSaved(h.last, true, 20);
+    await this.postSaved(h.last, final, 20);
   }
 
   // ---------------------------------------------------------------- admission (§6.3)
 
-  onClientInfo(id: number, ip: string): void {
+  /**
+   * CLIENT_INFO arrives on join and for every client after an admin (re)connect (the
+   * AdminClient polls all). A client already known is only re-checked: a `new` pupil who
+   * founded a company while the link was down is bound now.
+   */
+  onClientInfo(id: number, ip: string, playas = MAX_COMPANIES): void {
     if (id === CLIENT_ID_SERVER) return;
+    const known = this.clients.get(id);
+    if (known?.ip === ip) return this.onClientUpdate(id, playas);
     const who = this.registry.get(ip);
     if (!who) {
       this.log('warn', 'client from an unknown address, kicking', { id, ip });
@@ -751,13 +782,13 @@ export class Bridge {
       return;
     }
     this.clients.set(id, { ip, studentId: who.studentId, role: who.role, admit: null });
-    void this.admit(id);
+    this.bg(this.admit(id), 'admission');
   }
 
   onClientUpdate(id: number, playas: number): void {
     const c = this.clients.get(id);
     if (!c || c.admit !== 'new' || playas >= MAX_COMPANIES) return;
-    void this.founded(id, c, playas);
+    this.bg(this.founded(id, c, playas), 'founding');
   }
 
   onClientQuit(id: number): void {
@@ -822,7 +853,9 @@ export class Bridge {
       if (!r) await sleep(2_000);
     }
     const err = r?.body?.error;
-    if (r?.status === 200) {
+    const bound = err === 'already_bound' ? (r!.body.company ?? r!.body.data?.company) : undefined;
+    // already_bound to this very company: a retried POST whose first attempt committed.
+    if (r?.status === 200 || (r?.status === 409 && bound === company)) {
       this.slots.get(slot)!.company = company;
       await this.refreshSlots();
       this.gs({ t: 'bind', c: company, s: slot });
@@ -833,8 +866,7 @@ export class Bridge {
       return;
     }
     await this.refreshSlots();
-    if (r?.status === 409 && err === 'already_bound') {
-      const bound = r.body.company ?? r.body.data?.company;
+    if (r?.status === 409 && typeof bound === 'number') {
       c.admit = bound;
       await this.rcon(`edu_admit ${id} ${bound + 1}`).catch(() => undefined);
       await this.rcon(`reset_company ${company + 1}`).catch(() => undefined);
