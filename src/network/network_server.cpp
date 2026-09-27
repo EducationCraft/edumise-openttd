@@ -1547,7 +1547,8 @@ NetworkRecvStatus ServerNetworkGameSocketHandler::ReceiveClientMove(Packet &p)
 		if (!Company::IsValidHumanID(company_id)) return NetworkRecvStatus::Okay;
 
 		const Company *c = Company::Get(company_id);
-		if (!c->allow_any && !c->allow_list.Contains(this->peer_public_key)) {
+		/* EduCraft: in wallet mode the admission above replaces the allow-list (shared school PCs). */
+		if (!_settings_client.network.edu_wallet_mode && !c->allow_any && !c->allow_list.Contains(this->peer_public_key)) {
 			Debug(Facility::Net, Severity::Warning, "Wrong public key from client-id #{} for company #{}", this->client_id, company_id + 1);
 			return NetworkRecvStatus::Okay;
 		}
