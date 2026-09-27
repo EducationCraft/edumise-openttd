@@ -28,6 +28,7 @@ TEST_CASE("EduIsGatedCommand - paid cosmetics and money transfers")
 	CHECK(EduIsGatedCommand(Commands::RenameCompany, {}));
 	CHECK(EduIsGatedCommand(Commands::RenamePresident, {}));
 	CHECK(EduIsGatedCommand(Commands::SetCompanyColour, {}));
+	CHECK(EduIsGatedCommand(Commands::SetGroupLivery, {}));
 	CHECK(EduIsGatedCommand(Commands::GiveMoney, {}));
 	CHECK(EduIsGatedCommand(Commands::BuyCompany, {}));
 
@@ -88,6 +89,25 @@ TEST_CASE("EduConsumeNewCompany - one company per 'new' admission, none without 
 
 	EduForgetClient(pupil);
 	CHECK(EduGetAdmission(pupil) == nullptr);
+}
+
+TEST_CASE("EduForgetCompany - a removed company's id gives no way into its successor")
+{
+	const ClientID holder{1003};
+	const ClientID other{1004};
+	const CompanyID removed{3};
+	const CompanyID kept{4};
+
+	EduSetAdmission(holder, {EduAdmission::Kind::Company, removed});
+	EduSetAdmission(other, {EduAdmission::Kind::Company, kept});
+	EduForgetCompany(removed);
+
+	CHECK_FALSE(EduMayMove(EduGetAdmission(holder), removed));
+	CHECK(EduMayMove(EduGetAdmission(holder), COMPANY_SPECTATOR));
+	CHECK(EduMayMove(EduGetAdmission(other), kept));
+
+	EduForgetClient(holder);
+	EduForgetClient(other);
 }
 
 TEST_CASE("LOAN_INTERVAL - the pilot max loan is exactly four steps")

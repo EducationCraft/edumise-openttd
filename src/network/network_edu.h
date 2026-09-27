@@ -37,5 +37,6 @@ void EduSetAdmission(ClientID client_id, EduAdmission admission);
 const EduAdmission *EduGetAdmission(ClientID client_id);
 bool EduConsumeNewCompany(ClientID client_id);
 void EduForgetClient(ClientID client_id);
+void EduForgetCompany(CompanyID company);
 
 #endif /* NETWORK_EDU_H */

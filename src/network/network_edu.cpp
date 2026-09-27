@@ -31,6 +31,7 @@ bool EduIsGatedCommand(Commands cmd, const CommandDataBuffer &data)
 		case Commands::RenameCompany:
 		case Commands::RenamePresident: // renames an unnamed company as a side effect
 		case Commands::SetCompanyColour:
+		case Commands::SetGroupLivery: // group colours would show on the map like a bought company colour
 		case Commands::GiveMoney:
 		case Commands::BuyCompany:
 			return true;
@@ -93,4 +94,15 @@ bool EduConsumeNewCompany(ClientID client_id)
 void EduForgetClient(ClientID client_id)
 {
 	_edu_admissions.erase(client_id);
+}
+
+/**
+ * A removed company's id is reused by the next new company, so nobody keeps a way into it.
+ * @param company The company that no longer exists.
+ */
+void EduForgetCompany(CompanyID company)
+{
+	for (auto &[client_id, admission] : _edu_admissions) {
+		if (admission.kind == EduAdmission::Kind::Company && admission.company == company) admission = {};
+	}
 }

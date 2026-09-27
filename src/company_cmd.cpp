@@ -19,6 +19,7 @@
 #include "network/network_func.h"
 #include "network/network_base.h"
 #include "network/network_admin.h"
+#include "network/network_edu.h"
 #include "ai/ai.hpp"
 #include "ai/ai_instance.hpp"
 #include "ai/ai_config.hpp"
@@ -96,6 +97,7 @@ Company::~Company()
  */
 void Company::PostDestructor(size_t index)
 {
+	EduForgetCompany(CompanyID(index)); // EduCraft: no admission outlives its company
 	InvalidateWindowData(WindowClass::GraphLegend, 0, static_cast<int>(index));
 	InvalidateWindowData(WindowClass::PerformanceDetail, 0, static_cast<int>(index));
 	InvalidateWindowData(WindowClass::CompanyLeague, 0, 0);
