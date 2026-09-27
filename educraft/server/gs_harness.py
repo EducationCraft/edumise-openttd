@@ -198,7 +198,7 @@ class Server:
 
     def start(self, *args):
         log = open(self.work / "server.log", "ab")
-        self.proc = subprocess.Popen([self.openttd, "-D", "-c", str(self.work / "openttd.cfg"), *args],
+        self.proc = subprocess.Popen([self.openttd, "-D", "-d", "script=4", "-c", str(self.work / "openttd.cfg"), *args],
                                      cwd=self.work, stdout=log, stderr=subprocess.STDOUT, env=self.env)
         end = time.time() + 120
         while True:
