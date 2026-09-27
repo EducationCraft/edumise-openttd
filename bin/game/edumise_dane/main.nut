@@ -30,22 +30,41 @@ class EduMiseDane extends GSController
 	posledniRok = null;
 	citadela = false;
 
+	/**
+	 * Penezenka (setting `penezenka` = 1), see wallet.nut. Saved in the savegame:
+	 * { game, last, ring, bind, inited, loanPending, run, sid, stopAt, months }.
+	 */
+	w = null;
+	/* Not saved: a restart always goes through the bridge again. */
+	held = false;
+	lastMsgTick = 0;
+	lastMonth = null;
+	lastDay = null;
+	needMonth = null;
+	loanFailSent = null;
+	ladeni = false;
+
 	function Start();
 	function Save() {
-		return {
+		local data = {
 			stav = this.stav,
 			ctvrtleti = this.posledniCtvrtleti,
 			rok = this.posledniRok,
 			citadela = this.citadela
 		};
+		if (this.w != null) data.w <- this.w;
+		return data;
 	}
 	function Load(version, data) {
 		if ("stav" in data) this.stav = data.stav;
 		if ("ctvrtleti" in data) this.posledniCtvrtleti = data.ctvrtleti;
 		if ("rok" in data) this.posledniRok = data.rok;
 		if ("citadela" in data) this.citadela = data.citadela;
+		if ("w" in data) this.w = data.w;
 	}
 }
+
+require("wallet.nut");
 
 function EduMiseDane::Ctvrtleti()
 {
@@ -192,6 +211,23 @@ function EduMiseDane::PojmenujCitadelu()
 	GSTown.SetName(mesta.Begin(), "Citadela");
 }
 
+/** Danove zuctovani/zalohy, kdyz zacalo nove ctvrtleti. */
+function EduMiseDane::Dane()
+{
+	local ctvrtleti = this.Ctvrtleti();
+	if (ctvrtleti > this.posledniCtvrtleti) {
+		local rok = this.Rok();
+		// Prvni ctvrtleti noveho roku je zuctovaci, ostatni jsou zalohova.
+		if (rok > this.posledniRok) {
+			this.ProKazdouFirmu("zuctovani", rok);
+			this.posledniRok = rok;
+		} else {
+			this.ProKazdouFirmu("zaloha", rok);
+		}
+		this.posledniCtvrtleti = ctvrtleti;
+	}
+}
+
 function EduMiseDane::Start()
 {
 	this.sazba = GSController.GetSetting("sazba");
@@ -199,24 +235,19 @@ function EduMiseDane::Start()
 	if (this.stav == null) this.stav = {};
 	if (this.posledniCtvrtleti == null) this.posledniCtvrtleti = this.Ctvrtleti();
 	if (this.posledniRok == null) this.posledniRok = this.Rok();
+
+	if (GSController.GetSetting("penezenka") == 1) {
+		this.PenezenkaStart();
+		return;
+	}
+
 	if (!this.citadela) {
 		this.PojmenujCitadelu();
 		this.citadela = true;
 	}
 
 	while (true) {
-		local ctvrtleti = this.Ctvrtleti();
-		if (ctvrtleti > this.posledniCtvrtleti) {
-			local rok = this.Rok();
-			// Prvni ctvrtleti noveho roku je zuctovaci, ostatni jsou zalohova.
-			if (rok > this.posledniRok) {
-				this.ProKazdouFirmu("zuctovani", rok);
-				this.posledniRok = rok;
-			} else {
-				this.ProKazdouFirmu("zaloha", rok);
-			}
-			this.posledniCtvrtleti = ctvrtleti;
-		}
+		this.Dane();
 		this.Sleep(74); // ~jeden herni den
 	}
 }
