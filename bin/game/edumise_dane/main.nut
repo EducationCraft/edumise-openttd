@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Dane pro EduMise — podle ceskeho modelu dane z prijmu pravnickych osob.
  *
  * OpenTTD dan nezna. Pro financni gramotnost chybi presne ta cast, kde ze zisku

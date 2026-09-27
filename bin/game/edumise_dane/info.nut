@@ -1,4 +1,4 @@
-class EduMiseDane extends GSInfo {
+﻿class EduMiseDane extends GSInfo {
 	function GetAuthor()      { return "EduCraft"; }
 	function GetName()        { return "EduMise — daně"; }
 	function GetShortName()   { return "EMDA"; }

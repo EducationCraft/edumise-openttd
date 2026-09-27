@@ -998,6 +998,14 @@ static void GameLoadConfig(const IniFile &ini, std::string_view grpname)
 	/* Clean any configured GameScript */
 	GameConfig::GetConfig(GameConfig::ScriptSettingSource::ForceNewGame)->Change(std::nullopt);
 
+#ifdef __EMSCRIPTEN__
+	/* EduCraft: web build for EduMise always starts with the tax GameScript, unless another one was picked. */
+	if (group == nullptr || group->items.empty() || group->items.front().name == "none") {
+		GameConfig::GetConfig(GameConfig::ScriptSettingSource::ForceNewGame)->Change("EduMise \u2014 dan\u011b");
+		return;
+	}
+#endif
+
 	/* If no group exists, return */
 	if (group == nullptr || group->items.empty()) return;
 
