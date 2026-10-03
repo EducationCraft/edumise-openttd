@@ -8,7 +8,7 @@ import vm from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const ROOT = join(__dirname, '../../../..');
-const WSS = 'wss://doprava.edumise.educraft.cz/g/c3f0c9a1b2c4d?t=abc.def';
+const WSS = 'wss://ottd-server.edumise.educraft.cz/g/c3f0c9a1b2c4d?t=abc.def';
 
 const jwt = (claims: object) => `h.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ...claims })).toString('base64url')}.s`;
 

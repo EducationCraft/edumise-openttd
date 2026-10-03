@@ -4,7 +4,7 @@ Module.arguments.push('-mnull', '-snull', '-vsdl');
  * class session. Join the class server as spectator (#255); the server admits the pupil to
  * their own company. Tickets are single use, so every (re)connect takes the newest one the
  * parent page pushes with postMessage. The URL must answer synchronously, hence the push. */
-var EDU_WSS = /^(wss:\/\/doprava\.edumise\.educraft\.cz|ws:\/\/(localhost|127\.0\.0\.1)(:\d+)?)\/g\/c[0-9a-f]{12}\?t=[\w.-]+$/;
+var EDU_WSS = /^(wss:\/\/ottd-server\.edumise\.educraft\.cz|ws:\/\/(localhost|127\.0\.0\.1)(:\d+)?)\/g\/c[0-9a-f]{12}\?t=[\w.-]+$/;
 var eduWss = (function () {
     var m = /[#&]w=([^&]*)/.exec(location.hash);
     var url = m ? decodeURIComponent(m[1]) : '';

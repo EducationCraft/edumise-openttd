@@ -22,7 +22,7 @@ export interface DopravaProps extends StackProps {
   games: Game[];
   /** edumise-openttd git SHA; must equal the SHA of the deployed WASM client. */
   imageTag: string;
-  /** ACM cert for doprava.edumise.educraft.cz in eu-central-1 (handover, §8 B). */
+  /** ACM cert for ottd-server.edumise.educraft.cz in eu-central-1 (handover, §8 B). */
   certificateArn: string;
   /** X25519 public key of the bridge (hex); the private half is SSM admin-private-key. */
   adminPublicKey: string;
@@ -80,7 +80,7 @@ export class DopravaStack extends Stack {
       open: false,
     });
 
-    new CfnOutput(this, 'AlbDns', { value: alb.loadBalancerDnsName, description: 'doprava.edumise.educraft.cz → this' });
+    new CfnOutput(this, 'AlbDns', { value: alb.loadBalancerDnsName, description: 'ottd-server.edumise.educraft.cz → this' });
 
     const fsSg = new ec2.SecurityGroup(this, 'EfsSg', { vpc, description: 'edumise-doprava EFS' });
     fsSg.addIngressRule(taskSg, ec2.Port.tcp(2049), 'NFS from game tasks');

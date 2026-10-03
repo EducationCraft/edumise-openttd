@@ -46,14 +46,14 @@ const s=x25519.utils.randomSecretKey(); console.log(Buffer.from(s).toString('hex
 
 ## Deploy (handover — not executed)
 
-1. ACM certificate `doprava.edumise.educraft.cz` in **eu-central-1** (DNS validation). The CloudFront
+1. ACM certificate `ottd-server.edumise.educraft.cz` in **eu-central-1** (DNS validation). The CloudFront
    `*.edumise` cert is in us-east-1 and cannot be used by the ALB.
 2. Put the SSM parameters above (per game after the wallet enrolled the class).
 3. Push both images to ECR `edumise-doprava-server` / `edumise-doprava-gateway` with the SHA tag.
 4. Add the class to `infra/games.json` (`{"gameKey": "c<12 hex of classId>"}`, value from the wallet), then
    `cdk deploy -c imageTag=<sha> -c certificateArn=<arn> -c adminPublicKey=<hex> -c walletClientId=<id>`.
-5. DNS: `doprava.edumise.educraft.cz` → the ALB (alias / CNAME to the `AlbDns` output of the stack).
-6. CSP `educraft-csp-game` (CloudFront `E14AEJ36SUV76M`): `connect-src 'self' https://api.educraft.cz wss://doprava.edumise.educraft.cz`.
+5. DNS: `ottd-server.edumise.educraft.cz` → the ALB (alias / CNAME to the `AlbDns` output of the stack).
+6. CSP `educraft-csp-game` (CloudFront `E14AEJ36SUV76M`): `connect-src 'self' https://api.educraft.cz wss://ottd-server.edumise.educraft.cz`.
 7. Wallet side (§6.6): `ecs:UpdateService` / `ecs:DescribeServices` on `service/edumise-doprava/doprava-*`.
 8. Rebuild and redeploy the WASM client from the same SHA (`educraft/build-web.sh`).
 
