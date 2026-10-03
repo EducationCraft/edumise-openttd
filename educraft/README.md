@@ -39,6 +39,8 @@ Apart from that, `src/settings.cpp` (`GameLoadConfig`, `__EMSCRIPTEN__` only) pi
 The `.nut` files carry a UTF-8 BOM on purpose: without it Squirrel reads them as ASCII and
 Czech text comes out garbled. The alternative, adding
 `'unsafe-inline'` to `script-src`, would undo the main protection the policy gives.
+`src/openttd.cpp` no longer shows the survey prompt in the
+main menu: pupils never see it, and the unanswered `ask` never sends a survey.
 
 ## The gate
 
