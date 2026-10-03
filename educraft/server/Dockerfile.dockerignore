@@ -1,0 +1,7 @@
+# Build context is the repo root; keep build outputs and node_modules out of it.
+build
+build-*
+**/node_modules
+**/cdk.out
+**/dist
+.git

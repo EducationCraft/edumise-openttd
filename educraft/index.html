@@ -17,10 +17,12 @@
   h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
   p { margin: 0 0 1rem; }
   .chyba { color: #da482e; }
-  a.tlacitko {
-    display: inline-block; padding: .7rem 1.4rem; border-radius: 8px;
-    background: #22335d; color: #fbf7f0; text-decoration: none; font-weight: 600;
+  .tlacitko {
+    display: inline-block; padding: .7rem 1.4rem; border-radius: 8px; border: 0;
+    background: #22335d; color: #fbf7f0; text-decoration: none; font: inherit; font-weight: 600;
+    cursor: pointer;
   }
+  .tridy { display: flex; flex-direction: column; gap: .6rem; align-items: center; }
   /* Hra si bere celou plochu; ramecek az po overeni relace. */
   iframe { display: none; width: 100%; height: 100%; border: 0; }
   body.hraje { display: block; }
@@ -33,6 +35,7 @@
     <h1 id="titulek">Moment…</h1>
     <p id="zprava">Ověřuji přihlášení.</p>
     <p class="chyba" id="chyba" hidden></p>
+    <div class="tridy" id="tridy" hidden></div>
     <a class="tlacitko" id="odkaz" href="https://login.educraft.cz/" hidden>Přihlásit se</a>
   </div>
   <iframe id="hra" title="Doprava" allow="autoplay; fullscreen"></iframe>

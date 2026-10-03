@@ -18,6 +18,7 @@
 #include "../../station_base.h"
 #include "../../landscape.h"
 #include "../../town_cmd.h"
+#include "../../economy_func.h"
 
 #include "table/strings.h"
 
@@ -265,6 +266,13 @@
 	if (!IsValidTown(town_id)) return false;
 
 	return ::GetMaskOfTownActions(ScriptObject::GetCompany(), ::Town::Get(town_id)).Test(::TownAction(town_action));
+}
+
+/* static */ Money ScriptTown::GetTownActionCost(TownAction town_action)
+{
+	if (town_action < TOWN_ACTION_ADVERTISE_SMALL || town_action > TOWN_ACTION_BRIBE) return -1;
+
+	return _price[Price::TownAction] * ::GetTownActionCost(::TownAction(town_action)) >> 8;
 }
 
 /* static */ bool ScriptTown::PerformTownAction(TownID town_id, TownAction town_action)

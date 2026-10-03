@@ -1,0 +1,4 @@
+node_modules/
+cdk.out/
+# account-specific lookups (AZs); keep account ids out of git
+cdk.context.json

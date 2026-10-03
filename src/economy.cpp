@@ -560,6 +560,12 @@ static void CompanyCheckBankrupt(Company *c)
 
 	c->months_of_bankruptcy++;
 
+	/* EduCraft: the GameScript rescues insolvent companies; never offer or remove them. */
+	if (_settings_game.economy.edu_bankruptcy_hold && c->months_of_bankruptcy > 3) {
+		c->months_of_bankruptcy = 3;
+		return;
+	}
+
 	switch (c->months_of_bankruptcy) {
 		/* All the boring cases (months) with a bad balance where no action is taken */
 		case 0:

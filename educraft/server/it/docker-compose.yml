@@ -1,0 +1,26 @@
+# Local integration of the two task containers (contract §8 B). network_mode host stands in
+# for the Fargate task's shared loopback, so tests on the host reach 127.0.0.1:3977/8080.
+# Linux only. Run through ./run.sh.
+services:
+  openttd:
+    image: edumise-doprava-server:${TAG:-local}
+    network_mode: host
+    environment:
+      ADMIN_AUTHORIZED_KEY: ${ADMIN_PUBLIC_KEY}
+    volumes:
+      - ${IT_DIR}/data:/data
+  gateway:
+    image: edumise-doprava-gateway:${TAG:-local}
+    network_mode: host
+    depends_on: [openttd]
+    environment:
+      GAME_KEY: ${GAME_KEY}
+      SECRETS_PREFIX: /edumise-doprava/prod
+      LOCAL_SECRETS_DIR: /secrets
+      WALLET_BASE: ${WALLET_BASE:-http://127.0.0.1:4190/wallet}
+      TOKEN_ENDPOINT: ${TOKEN_ENDPOINT:-http://127.0.0.1:4190/oauth2/token}
+      WALLET_CLIENT_ID: local
+      DATA_DIR: /data
+    volumes:
+      - ${IT_DIR}/data:/data
+      - ${IT_DIR}/secrets:/secrets:ro

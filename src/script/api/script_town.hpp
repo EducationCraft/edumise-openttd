@@ -393,6 +393,15 @@ public:
 	static bool IsActionAvailable(TownID town_id, TownAction town_action);
 
 	/**
+	 * Get the cost of a town action, as charged by PerformTownAction.
+	 * @param town_action The action to get the cost of.
+	 * @return The cost of the action, or -1 when the action is invalid.
+	 * @note EduCraft addition, so a GameScript can compensate the exact cost.
+	 * @api -ai
+	 */
+	static Money GetTownActionCost(TownAction town_action);
+
+	/**
 	 * Perform a town action on this town.
 	 * @param town_id The town to perform the action on.
 	 * @param town_action The action to perform on the town.

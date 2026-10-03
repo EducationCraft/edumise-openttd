@@ -1,5 +1,27 @@
 Module.arguments.push('-mnull', '-snull', '-vsdl');
+
+/* EduCraft (EduMise Doprava, contract §6.4): the gate opens openttd.html#w=<wss url> for a
+ * class session. Join the class server as spectator (#255); the server admits the pupil to
+ * their own company. Tickets are single use, so every (re)connect takes the newest one the
+ * parent page pushes with postMessage. The URL must answer synchronously, hence the push. */
+var EDU_WSS = /^(wss:\/\/doprava\.edumise\.educraft\.cz|ws:\/\/(localhost|127\.0\.0\.1)(:\d+)?)\/g\/c[0-9a-f]{12}\?t=[\w.-]+$/;
+var eduWss = (function () {
+    var m = /[#&]w=([^&]*)/.exec(location.hash);
+    var url = m ? decodeURIComponent(m[1]) : '';
+    return EDU_WSS.test(url) ? url : null;
+})();
+if (eduWss) {
+    Module.arguments.push('-n', 'doprava:3979#255');
+    window.addEventListener('message', function (e) {
+        if (e.origin !== location.origin || e.source !== window.parent) return;
+        var d = e.data;
+        if (d && d.t === 'edumise-ticket' && typeof d.url === 'string' && EDU_WSS.test(d.url)) eduWss = d.url;
+    });
+}
+
 Module['websocket'] = { url: function(host, port, proto) {
+    if (eduWss && host == "doprava") return eduWss;
+
     /* openttd.org hosts a WebSocket proxy for the content service. */
     if (host == "content.openttd.org" && port == 3978 && proto == "tcp") {
         return "wss://bananas-server.openttd.org/";

@@ -19,6 +19,8 @@ add_files(
     network_crypto.cpp
     network_crypto.h
     network_crypto_internal.h
+    network_edu.cpp
+    network_edu.h
     network_func.h
     network_gamelist.cpp
     network_gamelist.h
