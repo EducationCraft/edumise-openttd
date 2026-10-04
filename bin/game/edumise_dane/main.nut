@@ -120,10 +120,10 @@ function EduMiseDane::Zaznam(firma)
 	if (!(firma in this.stav)) this.stav[firma] <- { dan = 0, zalohy = 0, ztraty = [] };
 	local z = this.stav[firma];
 	if (!("majetek" in z)) {
-		/* Starsi save drzel castky v librach a nemel majetek ani historii. */
+		/* Starsi save drzel castky v librach, ztratu pod rokem zuctovani (Y+1) a nemel majetek ani historii. */
 		z.dan *= EDU_CZK;
 		z.zalohy *= EDU_CZK;
-		foreach (ztrata in z.ztraty) ztrata.castka *= EDU_CZK;
+		foreach (ztrata in z.ztraty) { ztrata.castka *= EDU_CZK; ztrata.rok -= 1; }
 		z.majetek <- [];
 		z.historie <- [];
 	}
@@ -292,7 +292,7 @@ function EduMiseDane::RocniZuctovani(firma, rok, zpet)
 	else t += "nic nedoplácíme.";
 	this.Uctuj(firma, this.Libry(r.rozdil), t);
 
-	if (r.zpet > 0) {
+	if (r.vratka > 0) {
 		this.Uctuj(firma, this.Libry(-r.vratka), "Dodatečné přiznání: ztrátou za rok " + rok
 			+ " jsme snížili základ daně za předchozí dva roky o " + K(r.zpet) + " Kč, vrací se nám daň "
 			+ K(r.vratka) + " Kč.");
@@ -425,6 +425,13 @@ function EduMiseDane::Start()
 	}
 
 	while (true) {
+		// Firma se znovu pouzitym id (zkrachovala AI) zacina s cistymi danemi, viz wallet.nut HandleEvents.
+		while (GSEventController.IsEventWaiting()) {
+			local e = GSEventController.GetNextEvent();
+			if (e.GetEventType() != GSEvent.ET_COMPANY_NEW) continue;
+			local c = GSEventCompanyNew.Convert(e).GetCompanyID();
+			if (c in this.stav) delete this.stav[c];
+		}
 		this.Dane();
 		this.Sleep(74); // ~jeden herni den
 	}
