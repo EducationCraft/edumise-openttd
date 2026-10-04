@@ -40,7 +40,7 @@ describe('boot hello (§4.5 steps 1–4, §4.6)', () => {
     gs.ring = [[7, 1]];
     gs.co = [[0, 1]];
     await b.attach(gs);
-    expect(w.of('POST', '/hello')[0].body).toEqual({ gsLastSeq: 7, ring: [[7, 1]], gsGame: 'c000000000001', bindings: [[0, 1]] });
+    expect(w.of('POST', '/hello')[0].body).toEqual({ gsLastSeq: 7, ring: [[7, 1]], gsGame: 'c000000000001', bindings: [[0, 1]], resetId: null });
     expect(gs.of('session')).toEqual([{ t: 'session', run: true, sid: 'sid-1', months: 18 }]);
     expect(w.of('PUT', '/towns')[0].body).toEqual({ towns: [{ id: 0, name: 'Citadela' }] });
     const fin = w.of('PUT', '/finance')[0].body;
@@ -80,6 +80,63 @@ describe('boot hello (§4.5 steps 1–4, §4.6)', () => {
     await b.attach(gs);
     expect(gs.of('bind')).toEqual([{ t: 'bind', c: 3, s: null }]);
     expect(gs.co).toEqual([]);
+  });
+});
+
+describe('world reset', () => {
+  const exits: number[] = [];
+  beforeEach(() => {
+    exits.length = 0;
+    b.exit = (code) => exits.push(code);
+    writeFileSync(join(dir, 'save', 'current.sav'), 'old map');
+    writeFileSync(join(dir, 'snapshots', 'a.sav'), 'old snap');
+  });
+
+  it('reset_pending: archives save + snapshots, writes reset-id, exits without a final save', async () => {
+    w.setHello({ resetId: 'r1' }, 409, 'reset_pending');
+    await b.attach(gs);
+    expect(w.of('POST', '/hello')[0].body.resetId).toBeNull();
+    expect(readFileSync(join(dir, 'archive', 'r1', 'save', 'current.sav'), 'utf8')).toBe('old map');
+    expect(readFileSync(join(dir, 'archive', 'r1', 'snapshots', 'a.sav'), 'utf8')).toBe('old snap');
+    expect(readdirSync(dir).sort()).toEqual(['archive', 'reset-id']);
+    expect(readFileSync(join(dir, 'reset-id'), 'utf8')).toBe('r1');
+    expect(exits).toEqual([1]);
+    await b.shutdown();
+    expect(gs.of('session')).toEqual([]);
+    expect(gs.rcons).not.toContain('save current');
+    expect(w.of('POST', '/saved')).toEqual([]);
+  });
+
+  it('a rerun after a crash mid-archive moves only what is left', async () => {
+    mkdirSync(join(dir, 'archive', 'r1', 'snapshots'), { recursive: true });
+    writeFileSync(join(dir, 'archive', 'r1', 'snapshots', 'a.sav'), 'old snap');
+    rmSync(join(dir, 'snapshots'), { recursive: true });
+    mkdirSync(join(dir, 'snapshots')); // the entrypoint recreates it empty
+    w.setHello({ resetId: 'r1' }, 409, 'reset_pending');
+    await b.attach(gs);
+    expect(readFileSync(join(dir, 'archive', 'r1', 'save', 'current.sav'), 'utf8')).toBe('old map');
+    expect(readFileSync(join(dir, 'archive', 'r1', 'snapshots', 'a.sav'), 'utf8')).toBe('old snap');
+    expect(readdirSync(join(dir, 'snapshots'))).toEqual([]);
+    expect(exits).toEqual([1]);
+  });
+
+  it('a new map hellos with the resetId and is adopted at the wallet base seq', async () => {
+    rmSync(join(dir, 'save', 'current.sav'));
+    rmSync(join(dir, 'snapshots', 'a.sav'));
+    writeFileSync(join(dir, 'reset-id'), 'r1');
+    gs.game = null;
+    w.setHello({ adopt: true, baseSeq: 40 });
+    w.ops = [deposit(41)];
+    await b.attach(gs);
+    expect(w.of('POST', '/hello')[0].body).toMatchObject({ gsGame: null, gsLastSeq: 0, resetId: 'r1' });
+    expect(gs.of('adopt')).toEqual([{ t: 'adopt', game: 'c000000000001', last: 40 }]);
+    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 40, final: false });
+    expect(readFileSync(join(dir, 'save', 'current.seq'), 'utf8')).toBe('40');
+    expect(readdirSync(dir)).not.toContain('reset-id');
+    await run(2_000);
+    expect(w.of('GET', '/ops')[0].path).toContain('after=40');
+    expect(results(41)).toEqual(['applied']);
+    expect(exits).toEqual([]);
   });
 });
 

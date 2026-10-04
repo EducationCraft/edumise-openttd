@@ -285,7 +285,12 @@ function EduMiseDane::OnAdmin(m)
 			this.SendState();
 			break;
 		case "adopt":
-			if (this.w.game == null && typeof this.F(m, "game") == "string") this.w.game = m.game;
+			if (this.w.game == null && typeof this.F(m, "game") == "string") {
+				this.w.game = m.game;
+				/* A world reset keeps the wallet's seq numbering: the new map continues from its base. */
+				local base = this.F(m, "last");
+				if (this.w.last == 0 && typeof base == "integer" && base > 0) this.w.last = base;
+			}
 			this.SendState();
 			break;
 		case "bind": {

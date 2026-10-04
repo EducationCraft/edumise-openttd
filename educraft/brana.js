@@ -269,6 +269,37 @@
     tridyEl.appendChild(tlacitko('Zpět', zpet));
   }
 
+  // Reset sveta (POST …/reset): jen zastavena trida. Dva kroky; druhy chce opsat nazev tridy.
+  function resetujSvet(h) {
+    var zpet = function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); };
+    oznam('Resetovat svět – ' + h.className + '?', 'Starý svět se archivuje, firmy zmizí, žákům se vrátí vložené diamanty, '
+      + 'týmy zůstanou. Nový svět se vytvoří při příštím spuštění.');
+    vycisti();
+    tridyEl.appendChild(tlacitko('Pokračovat', function () {
+      oznam('Resetovat svět – ' + h.className, 'Pro potvrzení napište název třídy: ' + h.className);
+      vycisti();
+      var pole = document.createElement('input');
+      pole.type = 'text';
+      pole.placeholder = 'Název třídy';
+      var potvrd = tlacitko('Resetovat svět', async function () {
+        if (potvrd.disabled) return;
+        vycisti();
+        var r = await penezenka('POST', '/classes/' + encodeURIComponent(h.classId) + '/reset',
+          { schoolId: h.schoolId, requestId: crypto.randomUUID() }).catch(function () { return { status: 0 }; });
+        if (r.status === 200) oznam('Svět je resetován.', 'Nový svět se vytvoří při příštím spuštění hry.');
+        else chyba(r.status === 403 ? 'Svět této třídy nemůžete resetovat.'
+          : r.error === 'invalid_state' ? 'Nejdřív ukončete hru.' : 'Svět se nepodařilo resetovat.');
+        tridyEl.appendChild(tlacitko('Zpět', zpet));
+      });
+      potvrd.disabled = true;
+      pole.addEventListener('input', function () { potvrd.disabled = pole.value.trim() !== h.className; });
+      tridyEl.appendChild(pole);
+      tridyEl.appendChild(potvrd);
+      tridyEl.appendChild(tlacitko('Zpět', zpet));
+    }));
+    tridyEl.appendChild(tlacitko('Zpět', zpet));
+  }
+
   function nazevSkoly(s) {
     return s.name || 'Škola ' + s.schoolId.slice(0, 8);
   }
@@ -294,8 +325,10 @@
         tridyEl.appendChild(popisek(h.className + (t.session === 'starting' ? ' – hra se spouští' : ' – hra se ukončuje')));
       } else if (t.canManage) {
         tridyEl.appendChild(tlacitko('Spustit hru – ' + h.className, function () { spustTridu(h); }));
+        if (t.resetPending) tridyEl.appendChild(popisek(h.className + ' – nový svět čeká na spuštění'));
+        else tridyEl.appendChild(tlacitko('Resetovat svět – ' + h.className, function () { resetujSvet(h); }));
       } else {
-        tridyEl.appendChild(popisek(h.className + ' – hra neběží'));
+        tridyEl.appendChild(popisek(h.className + (t.resetPending ? ' – nový svět čeká na spuštění' : ' – hra neběží')));
       }
     });
   }

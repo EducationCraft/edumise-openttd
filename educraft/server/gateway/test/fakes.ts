@@ -44,7 +44,10 @@ export class FakeGs implements AdminLink {
         this.held = false;
         return this.reply(this.state());
       case 'adopt':
-        if (this.game === null) this.game = msg.game;
+        if (this.game === null) {
+          this.game = msg.game;
+          if (this.last === 0 && typeof msg.last === 'number') this.last = msg.last;
+        }
         return this.reply(this.state());
       case 'bind':
         this.co = this.co.filter(([c]) => c !== msg.c);
@@ -122,7 +125,7 @@ export class FakeWallet implements Wallet {
     this.hello =
       status === 200
         ? { status, body: { data: { sessionId: 'sid-1', session: 'running', sessionMonths: 18, adopt: false, unbind: [], slots: this.slots, ...extra } } }
-        : { status, body: { error } };
+        : { status, body: { error, ...extra } };
   }
 
   async call(method: string, path: string, body?: unknown): Promise<WalletResp> {

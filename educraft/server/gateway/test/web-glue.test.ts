@@ -251,6 +251,49 @@ describe('brana.js', () => {
     expect(els.titulek.textContent).toBe('Hra se ukončuje.');
   });
 
+  it('manager resets a stopped world after two steps and typing the class name; pending reset shows a label', async () => {
+    const resets: any[] = [];
+    let status = 403;
+    const { els } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: 'ZŠ Demo' }] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [
+        cls({ classId: K1, className: '6.I', canManage: true }),
+        cls({ classId: K2, className: '7.C', canManage: true, resetPending: true }),
+        cls({ classId: P1, className: '8.B', resetPending: true }),
+      ] } } }),
+      [`POST /classes/${K1}/reset`]: (body) => { resets.push(body); return status === 200 ? { status, body: { data: {} } } : { status, body: { error: 'forbidden' } }; },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Spustit hru – 6.I', 'Resetovat svět – 6.I', 'Spustit hru – 7.C',
+      '7.C – nový svět čeká na spuštění', '8.B – nový svět čeká na spuštění']);
+    await click(els, 'Resetovat svět – 6.I');
+    expect(els.zprava.textContent).toContain('žákům se vrátí vložené diamanty');
+    await click(els, 'Pokračovat');
+    const [pole, potvrd] = els.tridy.children;
+    expect(potvrd.textContent).toBe('Resetovat svět');
+    expect(potvrd.disabled).toBe(true);
+    await click(els, 'Resetovat svět');
+    expect(resets).toEqual([]);
+    pole.value = '6.A';
+    pole.listeners[0]();
+    expect(potvrd.disabled).toBe(true);
+    pole.value = ' 6.I ';
+    pole.listeners[0]();
+    expect(potvrd.disabled).toBe(false);
+    await click(els, 'Resetovat svět');
+    expect(resets).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b' }]);
+    expect(els.chyba.textContent).toBe('Svět této třídy nemůžete resetovat.');
+    expect(labels(els)).toEqual(['Zpět']);
+    status = 200;
+    await click(els, 'Zpět');
+    await click(els, 'Resetovat svět – 6.I');
+    await click(els, 'Pokračovat');
+    els.tridy.children[0].value = '6.I';
+    els.tridy.children[0].listeners[0]();
+    await click(els, 'Resetovat svět');
+    expect(els.titulek.textContent).toBe('Svět je resetován.');
+  });
+
   it('a start that never reaches running times out after 4 minutes with a Czech error', async () => {
     const { els, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN' }] } } }),

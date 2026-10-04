@@ -4,7 +4,7 @@
  * takes quiesced saves, runs admission and handles SIGTERM. All timing uses setTimeout /
  * setInterval + Date.now(), so tests drive it with fake timers.
  */
-import { copyFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdminLink } from './admin';
 import type { Role } from './ticket';
@@ -106,6 +106,8 @@ export class Bridge {
   stopping = false;
   sendBlocked = false;
   limited = false;
+  /** Ends the process after a world reset archived the old map; ECS restarts the task (tests override it). */
+  exit: (code: number) => void = (code) => process.exit(code);
   /** Last `slotsRev` seen in GET /ops (D20); a change refreshes the slot map and demotes moved pupils. */
   slotsRev: number | null = null;
 
@@ -258,12 +260,15 @@ export class Bridge {
     try {
       this.gs({ t: 'hello', v: 1 });
       const st = await this.waitGs((m) => m.t === 'state', T.stateWait);
+      const resetFile = join(this.dataDir, 'reset-id');
       const r = await this.wcall('POST', '/hello', {
         gsLastSeq: st.last,
         ring: st.ring ?? [],
         gsGame: st.game ?? null,
         bindings: st.co ?? [],
+        resetId: existsSync(resetFile) ? readFileSync(resetFile, 'utf8').trim() : null,
       });
+      if (r.status === 409 && r.body?.error === 'reset_pending') return this.archiveWorld(String(r.body.resetId));
       if (r.status === 409 && ['game_mismatch', 'rollback_refused'].includes(r.body?.error)) {
         // §4.5 step 2: stay paused, a human must act (§6.5).
         this.phase = 'refused';
@@ -287,8 +292,11 @@ export class Bridge {
       }
       if (d.adopt) {
         // §4.5 step 3: anchor the map to this game before any company exists.
-        this.gs({ t: 'adopt', game: this.gameKey });
-        await this.waitGs((m) => m.t === 'state' && m.game === this.gameKey, T.stateWait);
+        // After a world reset the new map continues the wallet's seq numbering from baseSeq.
+        this.gs({ t: 'adopt', game: this.gameKey, ...(typeof d.baseSeq === 'number' ? { last: d.baseSeq } : {}) });
+        const ad = await this.waitGs((m) => m.t === 'state' && m.game === this.gameKey, T.stateWait);
+        this.cursor = ad.last;
+        rmSync(resetFile, { force: true });
         await this.save({ resume: false });
       }
       this.phase = 'running';
@@ -301,6 +309,27 @@ export class Bridge {
       this.phase = 'boot';
       this.retryAt = Date.now() + T.bootRetry;
     }
+  }
+
+  /**
+   * The wallet reset this class's world while the old map is still loaded: move save/ and
+   * snapshots/ to archive/<resetId>/ and restart the task without a final save, so the
+   * entrypoint generates a new map. reset-id is written first and each move is skipped
+   * once done, so a crash anywhere just repeats this on the next boot. Snapshots move
+   * before the save: an empty save/ next to snapshots would make the entrypoint refuse to start.
+   */
+  private archiveWorld(resetId: string): void {
+    if (!/^[\w-]{1,64}$/.test(resetId)) throw new Error('reset_pending without a valid resetId');
+    this.stopping = true;
+    this.sid = null; // nothing to save at SIGTERM: this world is gone
+    writeFileSync(join(this.dataDir, 'reset-id'), resetId);
+    const dest = join(this.dataDir, 'archive', resetId);
+    mkdirSync(dest, { recursive: true });
+    for (const d of ['snapshots', 'save']) {
+      if (!existsSync(join(dest, d)) && existsSync(join(this.dataDir, d))) renameSync(join(this.dataDir, d), join(dest, d));
+    }
+    this.log('info', 'world reset: old map archived, restarting for a new map', { resetId });
+    this.exit(1);
   }
 
   // ---------------------------------------------------------------- periodic work

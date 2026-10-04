@@ -506,6 +506,18 @@ class Harness:
         dump = a.ask({"t": "debug", "what": "dump"}, "debug")
         c("old save without a treasury loads with pokl 20,000", dump["pokl"] == 20000, dump)
 
+        # World reset: a fresh map adopted with the wallet's base seq continues the numbering.
+        srv.stop()
+        a = srv.start()
+        st = a.ask({"t": "adopt", "game": GAME, "last": 500}, "state")
+        c("adopt with base last continues the seq", st["game"] == GAME and st["last"] == 500, st)
+        st = a.ask({"t": "adopt", "game": GAME, "last": 900}, "state")
+        c("base last ignored once adopted", st["last"] == 500, st)
+        m = a.mark()
+        a.to_gs({"t": "op", "seq": 501, "k": "noop"})
+        n = a.expect(m, lambda x: x["t"] == "nack")
+        c("next op after a reset adopt expects base + 1", n["expect"] == 501, n)
+
         log = srv.log()
         c("no script errors or oversized admin messages",
           "GSAdmin.Send failed" not in log and "Your script made an error" not in log,
