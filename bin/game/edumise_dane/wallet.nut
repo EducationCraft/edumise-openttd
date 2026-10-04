@@ -16,13 +16,13 @@ const EDU_RING = 64;
 const EDU_WATCHDOG_TICKS = 2000;   // ~54 s without any bridge message
 const EDU_CZK = 41;                // OpenTTD CZK display multiplier
 const EDU_KAPITAL = 10000000;      // start capital per company, Kč (gift)
-const EDU_MIN_BUFFER = 1000;       // rescue buffer floor, pounds
-/* Largest loan-init top-up, pounds: one month of interest on £13,924 at 4 % (£47) plus the
+const EDU_MIN_BUFFER = 21500;      // rescue buffer floor, pounds (881 500 Kč)
+/* Largest loan-init top-up, pounds: one month of interest on £300,000 at 4 % (£1,000) plus the
  * monthly fee (Price::StationValue >> 2, £25), with headroom. */
-const EDU_NATIVE_CHARGES = 100;
+const EDU_NATIVE_CHARGES = 1500;
 /* City treasury (D23): one-off start plus every tax actually paid; mayor grants come out of it. */
-const EDU_START_POKLADNA = 20000;
-const EDU_DUM = 1000;              // pounds per house a mayor's `expand` actually built (estimate)
+const EDU_START_POKLADNA = 432000; // pounds (17 712 000 Kč)
+const EDU_DUM = 21500;             // pounds (881 500 Kč) per house a mayor's `expand` actually built (estimate)
 const EDU_MAX_HOUSES = 20;
 const EDU_MAX_TAX = 50;
 /* The wallet caps news at 200 characters; Squirrel counts UTF-8 bytes (Czech: up to 2-3 each). */
@@ -51,7 +51,7 @@ function EduMiseDane::DateStr()
 	return GSDate.GetYear(d) + "-" + (m < 10 ? "0" : "") + m + "-" + (dd < 10 ? "0" : "") + dd;
 }
 
-/** Pounds as game korunas with thousands separated: 6962 -> "285 442". */
+/** Pounds as game korunas with thousands separated: 150000 -> "6 150 000". */
 function EduMiseDane::Kc(pounds)
 {
 	local s = "" + abs(pounds * EDU_CZK), out = "";

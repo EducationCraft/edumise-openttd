@@ -45,7 +45,7 @@ describe('boot hello (§4.5 steps 1–4, §4.6)', () => {
     expect(w.of('PUT', '/towns')[0].body).toEqual({ towns: [{ id: 0, name: 'Citadela' }] });
     const fin = w.of('PUT', '/finance')[0].body;
     expect(fin.final).toBe(false);
-    expect(fin.companies[0]).toMatchObject({ company: 0, cashPounds: 100, maxLoanPounds: 13924, valuePounds: 500, name: 'Rychlá doprava' });
+    expect(fin.companies[0]).toMatchObject({ company: 0, cashPounds: 100, maxLoanPounds: 300000, valuePounds: 500, name: 'Rychlá doprava' });
     expect(b.phase).toBe('running');
   });
 
@@ -446,21 +446,21 @@ describe('failure modes (§4.5 steps 10, 11)', () => {
 describe('GS reports', () => {
   it('forwards need as a rescue, gone companies, and monthly finance', async () => {
     await b.attach(gs);
-    b.onGs(JSON.stringify({ t: 'need', c: 0, cash: -2500, loan: 13924, ml: 13924, p: 3500 }));
+    b.onGs(JSON.stringify({ t: 'need', c: 0, cash: -2500, loan: 300000, ml: 300000, p: 24000 }));
     b.onGs(JSON.stringify({ t: 'company', c: 0, ev: 'removed' }));
     b.onGs(JSON.stringify({ t: 'fin', pg: 0, pgs: 1, d: '1951-04-01', co: gs.fin }));
     b.onGs(JSON.stringify({ t: 'names', pg: 0, pgs: 1, co: [[0, 'X']] }));
     await run(0);
-    expect(w.of('POST', '/rescues')[0].body).toEqual({ company: 0, pounds: 3500 });
+    expect(w.of('POST', '/rescues')[0].body).toEqual({ company: 0, pounds: 24000 });
     expect(w.of('POST', '/companies/0/gone')[0].body).toEqual({ reason: 'removed' });
     expect(b.slots.get(1)!.company).toBeNull();
     expect(w.of('PUT', '/finance').at(-1)!.body).toMatchObject({ gameDate: '1951-04-01', final: false });
   });
 
   it('forwards the treasury (fin page 0 pokl) as treasuryPounds, monthly and on report', async () => {
-    gs.pokl = 20000;
+    gs.pokl = 432000;
     await b.attach(gs);
-    expect(w.of('PUT', '/finance')[0].body.treasuryPounds).toBe(20000);
+    expect(w.of('PUT', '/finance')[0].body.treasuryPounds).toBe(432000);
     b.onGs(JSON.stringify({ t: 'fin', pg: 0, pgs: 2, d: '1951-04-01', pokl: 23456, co: gs.fin }));
     b.onGs(JSON.stringify({ t: 'fin', pg: 1, pgs: 2, d: '1951-04-01', co: [] }));
     b.onGs(JSON.stringify({ t: 'names', pg: 0, pgs: 1, co: [[0, 'X']] }));

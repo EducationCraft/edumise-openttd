@@ -205,10 +205,10 @@ enum class PriceCategory : uint8_t {
 
 /**
  * The "steps" in loan size, in British Pounds!
- * EduCraft: 3481 (= 50 diamonds at £69.62) instead of 10000, so the pilot's max loan of
- * £13,924 (= 200 diamonds) is exactly four steps. Client and server must share this value.
+ * EduCraft: 75000 (= 50 diamonds at £1,500, 3,075,000 Kč) instead of 10000, so the max loan of
+ * £300,000 (= 200 diamonds, the vanilla default) is exactly four steps. Client and server must share this value.
  */
-static const int LOAN_INTERVAL = 3481;
+static const int LOAN_INTERVAL = 75000;
 /** The size of loan for a new company, in British Pounds! */
 static const int64_t INITIAL_LOAN = 100000;
 /** The max amount possible to configure for a max loan of a company. */

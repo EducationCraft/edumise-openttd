@@ -318,20 +318,20 @@ class Harness:
             comps.append(ev["c"])
         c0, c1 = comps
         f = a.fin()
-        c("max loan is exactly 13,924 and cash/loan stay 0/0",
-          all(f[x]["ml"] == 13924 and f[x]["loan"] == 0 for x in comps), f)
+        c("max loan is exactly 300,000 and cash/loan stay 0/0",
+          all(f[x]["ml"] == 300000 and f[x]["loan"] == 0 for x in comps), f)
 
         for x, slot in ((c0, 1), (c1, 2)):
             b = a.ask({"t": "bind", "c": x, "s": slot}, "bound", c=x)
             c(f"bind {x} -> slot {slot}", b["s"] == slot, b)
 
         before = a.fin()[c0]["cash"]
-        ack = self.op(a, "deposit", s=1, c=c0, p=6962)
+        ack = self.op(a, "deposit", s=1, c=c0, p=150000)
         after = a.fin()[c0]["cash"]
-        c("deposit ack and cash +6962", ack["ok"] and after - before == 6962, (ack, before, after))
+        c("deposit ack and cash +150000", ack["ok"] and after - before == 150000, (ack, before, after))
 
         m = a.mark()
-        a.to_gs({"t": "op", "seq": self.seq, "k": "deposit", "s": 1, "c": c0, "p": 6962})
+        a.to_gs({"t": "op", "seq": self.seq, "k": "deposit", "s": 1, "c": c0, "p": 150000})
         dup = a.expect(m, lambda x: x["t"] == "ack" and x["seq"] == self.seq)
         c("duplicate seq re-acked, not applied twice", dup["ok"] and a.fin()[c0]["cash"] == after, dup)
 
@@ -380,11 +380,11 @@ class Harness:
         # Rescue: below the native predicate minus the buffer.
         m = a.mark()
         a.fin()  # month marker for needs_per_month
-        a.ask({"t": "debug", "c": c0, "p": -8000}, "debug")
+        a.ask({"t": "debug", "c": c0, "p": -275000}, "debug")
         need = a.expect(m, lambda x: x["t"] == "need" and x["c"] == c0, 30, "need")
         buffer = need["p"] - (need["loan"] - need["ml"] - need["cash"])
-        c("need read in company mode (loan 0, ml 13924) with buffer >= 1000",
-          need["loan"] == 0 and need["ml"] == 13924 and need["cash"] == -13000 and buffer >= 1000, need)
+        c("need read in company mode (loan 0, ml 300000) with buffer >= 21500",
+          need["loan"] == 0 and need["ml"] == 300000 and need["cash"] == -280000 and buffer >= 21500, need)
         ack = self.op(a, "rescue", s=1, c=c0, p=need["p"])
         f = a.fin()[c0]
         c("rescue lifts the company to the predicate plus buffer",
@@ -396,13 +396,13 @@ class Harness:
         c("after a rescue, daily costs send no second need in the same month",
           per_month and max(per_month.values()) == 1, per_month)
 
-        li = a.ask({"t": "debug", "c": c1, "p": -46, "reinit": True}, "loaninit", c=c1)
+        li = a.ask({"t": "debug", "c": c1, "p": -1025, "reinit": True}, "loaninit", c=c1)
         c("loan-init top-up after a native charge (a month of interest) still ends at 0/0",
           li["ok"] and li["cash"] == 0 and li["loan"] == 0 and a.fin()[c1]["cash"] == 0, li)
-        li = a.ask({"t": "debug", "c": c1, "p": -500, "reinit": True}, "loaninit", c=c1)
-        c("loan-init does not refund pupil spending: ok:false, cash stays -500",
-          not li["ok"] and li["cash"] == -500 and a.fin()[c1]["cash"] == -500, li)
-        li = a.ask({"t": "debug", "c": c1, "p": 500}, "loaninit", c=c1)
+        li = a.ask({"t": "debug", "c": c1, "p": -2000, "reinit": True}, "loaninit", c=c1)
+        c("loan-init does not refund pupil spending: ok:false, cash stays -2000",
+          not li["ok"] and li["cash"] == -2000 and a.fin()[c1]["cash"] == -2000, li)
+        li = a.ask({"t": "debug", "c": c1, "p": 2000}, "loaninit", c=c1)
         c("pending loan-init completes once the gap is closed", li["ok"] and a.fin()[c1]["cash"] == 0, li)
 
         self.mayor(a, c0, c1, town)
@@ -421,7 +421,7 @@ class Harness:
         c("ops nacked held while held", n["r"] == "held", n)
         # Held: no GS money work either (loan-init, taxes: both run in Running()) until resumed.
         m = a.mark()
-        a.ask({"t": "debug", "c": c1, "p": -46, "reinit": True}, "debug")
+        a.ask({"t": "debug", "c": c1, "p": -1025, "reinit": True}, "debug")
         c("no loan-init while held", a.none_within(m, lambda x: x["t"] == "loaninit", 5))
         m = a.mark()
         a.to_gs({"t": "session", "run": True, "sid": "s1", "months": 24})
@@ -504,7 +504,7 @@ class Harness:
         srv.stop()
         a = srv.start("-g", str(next(srv.work.rglob("legacy.sav"))))
         dump = a.ask({"t": "debug", "what": "dump"}, "debug")
-        c("old save without a treasury loads with pokl 20,000", dump["pokl"] == 20000, dump)
+        c("old save without a treasury loads with pokl 432,000", dump["pokl"] == 432000, dump)
 
         # World reset: a fresh map adopted with the wallet's base seq continues the numbering.
         srv.stop()
@@ -528,8 +528,8 @@ class Harness:
         c = self.check
         dump = a.ask({"t": "debug", "what": "dump"}, "debug")
         p0 = dump["pokl"]
-        c("treasury starts at 20,000 (plus taxes paid) and Citadela is a town",
-          p0 >= 20000 and isinstance(dump["citadela"], int), dump)
+        c("treasury starts at 432,000 (plus taxes paid) and Citadela is a town",
+          p0 >= 432000 and isinstance(dump["citadela"], int), dump)
         since = a.mark()
         a.to_gs({"t": "report", "what": "fin"})
         page0 = a.expect(since, lambda m: m["t"] == "fin" and m["pg"] == 0, what="fin page 0")
@@ -549,7 +549,7 @@ class Harness:
         a.ask({"t": "debug", "c": c1, "p": 3000}, "debug")
         m = a.mark()
         a.fin()  # month marker for needs_per_month
-        ack = self.op(a, "fine", s=2, c=c1, p=3481)
+        ack = self.op(a, "fine", s=2, c=c1, p=75000)
         f = a.fin()[c1]
         c("fine clipped to positive cash, ack p = applied",
           ack["ok"] and ack.get("p") == 3000 and f["cash"] == 0, (ack, f))
@@ -561,7 +561,7 @@ class Harness:
         c("grant from an empty treasury -> treasury_empty", not ack["ok"] and ack["r"] == "treasury_empty", ack)
         ack = self.op(a, "expand", v=town, p=1)
         c("expand from an empty treasury -> treasury_empty", not ack["ok"] and ack["r"] == "treasury_empty", ack)
-        a.ask({"t": "debug", "pokl": 20000}, "debug")
+        a.ask({"t": "debug", "pokl": 432000}, "debug")
 
         # Tax (D23): only what was paid out of positive cash reaches the treasury; a refund comes out of it.
         a.ask({"t": "debug", "c": c1, "p": 300}, "debug")  # c1: 0 -> 300 after the clipped fine
@@ -569,14 +569,14 @@ class Harness:
         dump = a.ask({"t": "debug", "what": "dump"}, "debug")
         f = a.fin()[c1]
         c("tax over positive cash: treasury gets only the cash part",
-          r["ok"] and dump["pokl"] == 20300 and f["cash"] == -700, (r, dump, f))
+          r["ok"] and dump["pokl"] == 432300 and f["cash"] == -700, (r, dump, f))
         r = a.ask({"t": "debug", "c": c1, "tax": -400}, "debug")
         dump = a.ask({"t": "debug", "what": "dump"}, "debug")
         f = a.fin()[c1]
         c("tax refund comes out of the treasury in full",
-          r["ok"] and dump["pokl"] == 19900 and f["cash"] == -300, (r, dump, f))
+          r["ok"] and dump["pokl"] == 431900 and f["cash"] == -300, (r, dump, f))
         a.ask({"t": "debug", "c": c1, "p": 300}, "debug")
-        a.ask({"t": "debug", "pokl": 20000}, "debug")
+        a.ask({"t": "debug", "pokl": 432000}, "debug")
 
         ack = self.op(a, "tax", v=30)
         dump = a.ask({"t": "debug", "what": "dump"}, "debug")
@@ -588,8 +588,8 @@ class Harness:
         ack = self.op(a, "expand", v=town, p=3)
         dump = a.ask({"t": "debug", "what": "dump"}, "debug")
         c("expand charges only houses actually built",
-          (ack["ok"] and 1 <= ack.get("p", 0) <= 3 and dump["pokl"] == 20000 - ack["p"] * 1000) or
-          (not ack["ok"] and ack["r"] == "action_unavailable" and dump["pokl"] == 20000), (ack, dump))
+          (ack["ok"] and 1 <= ack.get("p", 0) <= 3 and dump["pokl"] == 432000 - ack["p"] * 21500) or
+          (not ack["ok"] and ack["r"] == "action_unavailable" and dump["pokl"] == 432000), (ack, dump))
 
     def client_hooks(self, a, srv, other, town):
         """§5 tests 1, 2 and 5 through a real game socket: what a pupil's client sends."""
@@ -640,12 +640,12 @@ class Harness:
                  ("BuyCompany", u8(other), u8(0)), ("TownAction", u16(town), u8(2)), ("TownAction", u16(town), u8(4))]
         for cmd in gated:
             pa.command(h, *cmd)
-        pa.command(h, "IncreaseLoan", u8(2), i64(3481))
-        a.pump_until(lambda: a.fin()[h]["loan"] == 3481, 15, "loan taken by the client")
+        pa.command(h, "IncreaseLoan", u8(2), i64(75000))
+        a.pump_until(lambda: a.fin()[h]["loan"] == 75000, 15, "loan taken by the client")
         f1, n1 = a.fin()[h], a.names()[h]
         dropped = sum(1 for x in pa.chat if "peněžence" in x)
         c("gated commands from a client are not executed (name, colour, cash unchanged), a loan is",
-          f1["cash"] == f0["cash"] + 3481 and f1["col"] == f0["col"] and n1 == n0 and dropped == len(gated),
+          f1["cash"] == f0["cash"] + 75000 and f1["col"] == f0["col"] and n1 == n0 and dropped == len(gated),
           (f0, f1, n0, n1, pa.chat))
 
         # A removed company's id goes to the next new company; an old admission must not lead into it.
@@ -668,7 +668,7 @@ class Harness:
 
     def bankruptcy_hold(self, a, company):
         """Insolvent for 13 game months: stays at the warnings, never offered or removed."""
-        a.ask({"t": "debug", "c": company, "p": -20000}, "debug")
+        a.ask({"t": "debug", "c": company, "p": -320000}, "debug")
         start = a.state()["date"]
         quarters = set()
         while True:
@@ -683,7 +683,7 @@ class Harness:
                 break
         self.check("insolvent company held at months_of_bankruptcy <= 3 for 13 months (not offered, not removed)",
                    company not in a.removed and 1 in quarters and quarters <= {0, 1, None}, (quarters, a.removed))
-        a.ask({"t": "debug", "c": company, "p": 20000}, "debug")
+        a.ask({"t": "debug", "c": company, "p": 320000}, "debug")
 
 
 def main():

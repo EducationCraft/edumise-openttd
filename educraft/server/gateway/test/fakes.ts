@@ -26,7 +26,7 @@ export class FakeGs implements AdminLink {
   ackP = new Map<number, number>();
   pokl: number | undefined = undefined;
   saveOk = true;
-  fin = [{ c: 0, cash: 100, loan: 0, ml: 13924, val: 500, col: 3, i0: 1, e0: -2, i1: 3, e1: -4 }];
+  fin = [{ c: 0, cash: 100, loan: 0, ml: 300000, val: 500, col: 3, i0: 1, e0: -2, i1: 3, e1: -4 }];
 
   private reply(m: object): void {
     queueMicrotask(() => this.bridge.onGs(JSON.stringify(m)));

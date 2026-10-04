@@ -135,8 +135,8 @@ the tax script the web single-player uses. `ladeni` enables test-only `debug` me
 and must stay 0 on servers.
 
 Loan-init tops a new company up to its current loan (`delta = loan − cash`) and repays it
-all. With the untouched initial loan that is `13924 − cash`; it also ends at 0/0 when a
-pupil repaid part of the loan before the script ran. The top-up is capped at £100, which
+all. With the untouched initial loan (`INITIAL_LOAN` rounded down to a step, £75,000) that is `75000 − cash`; it also ends at 0/0 when a
+pupil repaid part of the loan before the script ran. The top-up is capped at £1,500 (61 500 Kč), which
 covers the native charges (a month of interest and the monthly fee); a bigger gap is pupil
 spending and goes to a human as `loaninit ok:false` instead of being refunded.
 
@@ -144,7 +144,7 @@ spending and goes to a human as `loaninit ok:false` instead of being refunded.
 
 | File | Why |
 |---|---|
-| `src/economy_type.h` | A1: `LOAN_INTERVAL = 3481`, so the max loan £13,924 = 200 💎 is exactly 4 steps. Affects every build, single-player too. |
+| `src/economy_type.h` | A1: `LOAN_INTERVAL = 75000`, so the max loan £300,000 (12 300 000 Kč) = 200 💎 is exactly 4 steps. Affects every build, single-player too. |
 | `src/table/settings/network_settings.ini`, `src/settings_type.h` | A2: `network.edu_wallet_mode` (server-only, not saved, default off). |
 | `src/network/network_edu.{h,cpp}`, `src/network/CMakeLists.txt` | A3/A5 logic: gated commands, admission map. New files, no upstream conflict. |
 | `src/network/network_server.cpp` | Hooks, each behind `edu_wallet_mode`: join forced to spectator (A5a), gated client commands dropped with a chat line (A3), moves only as admitted, with the company allow-list skipped (A5b), `CompanyControl New` only with a `new` admission (A5c), admission erased on disconnect. |

@@ -601,7 +601,7 @@ export class Bridge {
 
   private async onNeed(m: { c: number; cash: number; loan: number; ml: number; p?: number }): Promise<void> {
     // ponytail: the GS computes p with its buffer B (§4.4); the fallback uses the minimum B.
-    const pounds = m.p ?? m.loan - m.ml - m.cash + 1000;
+    const pounds = m.p ?? m.loan - m.ml - m.cash + 21500;
     try {
       const r = await this.wcall('POST', '/rescues', { company: m.c, pounds });
       if (r.status !== 200) this.log('error', 'rescue refused', { company: m.c, status: r.status, error: r.body?.error });

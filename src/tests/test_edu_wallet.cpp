@@ -112,6 +112,6 @@ TEST_CASE("EduForgetCompany - a removed company's id gives no way into its succe
 
 TEST_CASE("LOAN_INTERVAL - the pilot max loan is exactly four steps")
 {
-	CHECK(LOAN_INTERVAL == 3481);
-	CHECK(4 * LOAN_INTERVAL == 13924);
+	CHECK(LOAN_INTERVAL == 75000);
+	CHECK(4 * LOAN_INTERVAL == 300000);
 }
