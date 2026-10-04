@@ -19,6 +19,13 @@ const EDU_MIN_BUFFER = 1000;       // rescue buffer floor, pounds
 /* Largest loan-init top-up, pounds: one month of interest on £13,924 at 4 % (£47) plus the
  * monthly fee (Price::StationValue >> 2, £25), with headroom. */
 const EDU_NATIVE_CHARGES = 100;
+/* City treasury (D23): one-off start plus every tax actually paid; mayor grants come out of it. */
+const EDU_START_POKLADNA = 20000;
+const EDU_DUM = 1000;              // pounds per house a mayor's `expand` actually built (estimate)
+const EDU_MAX_HOUSES = 20;
+const EDU_MAX_TAX = 50;
+/* The wallet caps news at 200 characters; Squirrel counts UTF-8 bytes (Czech: up to 2-3 each). */
+const EDU_MAX_NEWS_BYTES = 800;
 
 function EduMiseDane::F(m, k)
 {
@@ -138,6 +145,9 @@ function EduMiseDane::PenezenkaStart()
 		this.w = { game = null, last = 0, ring = [], bind = {}, inited = {}, loanPending = {},
 			run = false, sid = null, stopAt = 0, months = 18 };
 	}
+	/* Older saves get the treasury filled in (D23). */
+	if (!("pokladna" in this.w)) this.w.pokladna <- EDU_START_POKLADNA;
+	if (!("rozpocet" in this.w)) this.w.rozpocet <- { dane = 0, dotace = 0, pokuty = 0, stavby = 0 };
 	this.needMonth = {};
 	this.loanFailSent = {};
 
@@ -163,6 +173,7 @@ function EduMiseDane::PenezenkaStart()
 		}
 		GSGame.Pause();
 	}
+	this.Citadela();
 	this.lastMsgTick = GSController.GetTick();
 	this.PenezenkaLoop();
 }
@@ -371,6 +382,7 @@ function EduMiseDane::OnOp(m)
 	}
 
 	this.LoanInit();
+	this.ackP = null;
 	local failed = this.Apply(m);
 
 	this.w.last = seq;
@@ -379,6 +391,7 @@ function EduMiseDane::OnOp(m)
 
 	local ack = { t = "ack", seq = seq, ok = failed == null };
 	if (failed != null) ack.r <- failed;
+	else if (this.ackP != null) ack.p <- this.ackP; // mayor ops: what was actually applied
 	this.Send(ack);
 }
 
@@ -388,12 +401,25 @@ function EduMiseDane::Apply(m)
 	local k = this.F(m, "k");
 	if (k == "noop") return null;
 
+	local p = this.F(m, "p"), v = this.F(m, "v");
+	/* Mayor ops without a company run before the bind check (D21). */
+	switch (k) {
+		case "tax": return this.MayorTax(v);
+		case "news": return this.MayorNews(v);
+		case "expand": return this.MayorExpand(v, p);
+	}
+
 	local c = this.F(m, "c"), s = this.F(m, "s");
 	/* Only the slot's own company: a stale or foreign binding never gets the money. */
 	if (!this.Exists(c) || !(c in this.w.bind) || this.w.bind[c] != s) return "no_company";
 
-	local p = this.F(m, "p"), v = this.F(m, "v");
 	switch (k) {
+		case "grant":
+			return this.MayorGrant(c, p);
+
+		case "fine":
+			return this.MayorFine(c, p);
+
 		case "deposit":
 		case "rescue":
 			/* A rescue leaves needMonth alone: it lands exactly on the trigger line, so the
@@ -483,14 +509,129 @@ function EduMiseDane::CheckNeeds(month)
 {
 	foreach (c in this.Companies()) {
 		local f = this.Money(c);
-		local spent = -GSCompany.GetQuarterlyExpenses(c, 1);
-		local b = max(EDU_MIN_BUFFER, (spent + 2) / 3);
+		local b = this.NeedBuffer(c);
 		if (f.cash - f.loan >= -f.ml + b) continue;
 		if (c in this.needMonth && this.needMonth[c] == month) continue;
 
 		this.needMonth[c] <- month;
 		this.Send({ t = "need", c = c, cash = f.cash, loan = f.loan, ml = f.ml, p = f.loan - f.ml - f.cash + b });
 	}
+}
+
+/** B: one month of last quarter's expenses, at least EDU_MIN_BUFFER (rescue need and fine clip). */
+function EduMiseDane::NeedBuffer(c)
+{
+	local spent = -GSCompany.GetQuarterlyExpenses(c, 1);
+	return max(EDU_MIN_BUFFER, (spent + 2) / 3);
+}
+
+/* ------------------------------------------------------- mayor and city */
+
+/**
+ * The mayor's town (news board): w.citadela when still valid, else the town named
+ * "Citadela", else the largest. Null when the map has no town.
+ */
+function EduMiseDane::Citadela()
+{
+	local t = ("citadela" in this.w) ? this.w.citadela : null;
+	if (typeof t == "integer" && GSTown.IsValidTown(t)) return t;
+	t = null;
+	foreach (id, _ in GSTownList()) {
+		if (GSTown.GetName(id) == "Citadela") { t = id; break; }
+	}
+	if (t == null) {
+		local best = -1;
+		foreach (id, _ in GSTownList()) {
+			local pop = GSTown.GetPopulation(id);
+			if (pop > best) { best = pop; t = id; }
+		}
+	}
+	this.w.citadela <- t;
+	return t;
+}
+
+/**
+ * Tax bookkeeping (D23): only the part the company could actually pay out of positive
+ * cash goes to the treasury; a refund (castka < 0) comes out of it in full, may go negative.
+ */
+function EduMiseDane::DoPokladny(firma, castka)
+{
+	local zaplaceno = castka < 0 ? castka : min(castka, max(0, this.Money(firma).cash));
+	this.w.pokladna += zaplaceno;
+	this.w.rozpocet.dane += zaplaceno;
+}
+
+function EduMiseDane::RocniRozpocet(rok)
+{
+	local r = this.w.rozpocet;
+	GSNews.Create(GSNews.NT_GENERAL, "Městský rozpočet " + rok + ": daně " + this.Kc(r.dane) + " Kč, dotace "
+		+ this.Kc(r.dotace) + " Kč, pokuty " + this.Kc(r.pokuty) + " Kč, stavby " + this.Kc(r.stavby)
+		+ " Kč, pokladna " + this.Kc(this.w.pokladna) + " Kč.", GSCompany.COMPANY_INVALID, GSNews.NR_NONE, 0);
+	this.w.rozpocet = { dane = 0, dotace = 0, pokuty = 0, stavby = 0 };
+}
+
+function EduMiseDane::MayorTax(v)
+{
+	if (typeof v != "integer" || v < 0 || v > EDU_MAX_TAX) return "invalid";
+	this.sazba = v;
+	GSNews.Create(GSNews.NT_GENERAL, "Starosta nastavil daň na " + v + " %.", GSCompany.COMPANY_INVALID, GSNews.NR_NONE, 0);
+	return null;
+}
+
+function EduMiseDane::MayorNews(v)
+{
+	if (typeof v != "string" || v.len() == 0 || v.len() > EDU_MAX_NEWS_BYTES) return "invalid";
+	GSNews.Create(GSNews.NT_GENERAL, v, GSCompany.COMPANY_INVALID, GSNews.NR_NONE, 0);
+	local t = this.Citadela();
+	if (t != null) GSTown.SetText(t, v);
+	return null;
+}
+
+/** ExpandTown reports success even when nothing was built: charge only built houses. */
+function EduMiseDane::MayorExpand(town, houses)
+{
+	if (typeof town != "integer" || !GSTown.IsValidTown(town)) return "invalid";
+	if (typeof houses != "integer" || houses < 1 || houses > EDU_MAX_HOUSES) return "invalid";
+	if (houses * EDU_DUM > this.w.pokladna) return "treasury_empty";
+	local h0 = GSTown.GetHouseCount(town);
+	GSTown.ExpandTown(town, houses);
+	local n = max(0, GSTown.GetHouseCount(town) - h0);
+	if (n == 0) return "action_unavailable";
+	this.w.pokladna -= n * EDU_DUM;
+	this.w.rozpocet.stavby += n * EDU_DUM;
+	this.ackP = n;
+	return null;
+}
+
+function EduMiseDane::MayorGrant(c, p)
+{
+	if (typeof p != "integer" || p < 1) return "invalid";
+	if (this.w.pokladna < p) return "treasury_empty";
+	if (!this.Give(c, p)) return "invalid";
+	this.w.pokladna -= p;
+	this.w.rozpocet.dotace += p;
+	GSNews.Create(GSNews.NT_ECONOMY, "Dotace od starosty: " + this.Kc(p) + " Kč", c, GSNews.NR_NONE, 0);
+	this.ackP = p;
+	return null;
+}
+
+/**
+ * Clipped so the company stays on/above the rescue line (no `need` next day) and its
+ * cash never goes below 0.
+ */
+function EduMiseDane::MayorFine(c, p)
+{
+	if (typeof p != "integer" || p < 1) return "invalid";
+	local f = this.Money(c);
+	local room = f.cash - f.loan + f.ml - this.NeedBuffer(c);
+	local pp = min(p, min(max(0, room), max(0, f.cash)));
+	if (pp == 0) return "nothing_to_fine";
+	if (!this.Give(c, -pp)) return "invalid";
+	this.w.pokladna += pp;
+	this.w.rozpocet.pokuty += pp;
+	GSNews.Create(GSNews.NT_ECONOMY, "Pokuta od starosty: " + this.Kc(pp) + " Kč", c, GSNews.NR_NONE, 0);
+	this.ackP = pp;
+	return null;
 }
 
 /* -------------------------------------------------------------- reports */
@@ -504,13 +645,14 @@ function EduMiseDane::SendState()
 }
 
 /** Pages keep every message under the 1450 byte admin limit. */
-function EduMiseDane::SendPages(t, key, items, perPage, extra)
+function EduMiseDane::SendPages(t, key, items, perPage, extra, first = null)
 {
 	local pgs = (items.len() + perPage - 1) / perPage;
 	if (pgs == 0) pgs = 1;
 	for (local pg = 0; pg < pgs; pg++) {
 		local msg = { t = t, pg = pg, pgs = pgs };
 		foreach (k, v in extra) msg[k] <- v;
+		if (pg == 0 && first != null) foreach (k, v in first) msg[k] <- v;
 		msg[key] <- items.slice(pg * perPage, min(items.len(), (pg + 1) * perPage));
 		this.Send(msg);
 	}
@@ -523,7 +665,7 @@ function EduMiseDane::SendFin()
 		fin.append(this.FinOf(c));
 		names.append([c, GSCompany.GetName(c)]);
 	}
-	this.SendPages("fin", "co", fin, 10, { d = this.DateStr() });
+	this.SendPages("fin", "co", fin, 10, { d = this.DateStr() }, { pokl = this.w.pokladna });
 	this.SendPages("names", "co", names, 5, {});
 }
 
@@ -539,7 +681,7 @@ function EduMiseDane::SendTowns()
 /**
  * Only with setting `ladeni` = 1 (the local test harness, never the server config):
  * {"t":"debug","c":3,"p":-500,"reinit":true} changes cash and optionally re-arms loan-init,
- * {"t":"debug","what":"dump"} reports the unsent state.
+ * {"t":"debug","what":"dump"} reports the unsent state, {"t":"debug","pokl":0} sets the treasury.
  */
 function EduMiseDane::OnDebug(m)
 {
@@ -547,7 +689,13 @@ function EduMiseDane::OnDebug(m)
 		local inited = [], pending = [];
 		foreach (c, _ in this.w.inited) inited.append(c);
 		foreach (c, _ in this.w.loanPending) pending.append(c);
-		this.Send({ t = "debug", inited = inited, pending = pending, held = this.held, run = this.w.run });
+		this.Send({ t = "debug", inited = inited, pending = pending, held = this.held, run = this.w.run,
+			pokl = this.w.pokladna, sazba = this.sazba, citadela = this.w.citadela });
+		return;
+	}
+	if (typeof this.F(m, "pokl") == "integer") {
+		this.w.pokladna = m.pokl;
+		this.Send({ t = "debug", ok = true });
 		return;
 	}
 	local c = this.F(m, "c"), p = this.F(m, "p");

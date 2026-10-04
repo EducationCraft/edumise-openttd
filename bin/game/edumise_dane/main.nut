@@ -21,8 +21,9 @@
  */
 class EduMiseDane extends GSController
 {
-	sazba = 21;
-	hraniceZaloh = 30000;
+	/* null = not in the save yet: Start reads the setting. The mayor's `tax` op changes sazba. */
+	sazba = null;
+	hraniceZaloh = null;
 
 	/** Per firmu: { dan (posledni znama), zalohy (zaplacene letos), ztraty [{rok, castka}] }. */
 	stav = null;
@@ -32,7 +33,8 @@ class EduMiseDane extends GSController
 
 	/**
 	 * Penezenka (setting `penezenka` = 1), see wallet.nut. Saved in the savegame:
-	 * { game, last, ring, bind, inited, loanPending, run, sid, stopAt, months }.
+	 * { game, last, ring, bind, inited, loanPending, run, sid, stopAt, months,
+	 *   pokladna, rozpocet, citadela }.
 	 */
 	w = null;
 	/* Not saved: a restart always goes through the bridge again. */
@@ -43,6 +45,7 @@ class EduMiseDane extends GSController
 	needMonth = null;
 	loanFailSent = null;
 	ladeni = false;
+	ackP = null; // amount a mayor op actually applied, for its ack
 
 	function Start();
 	function Save() {
@@ -50,7 +53,9 @@ class EduMiseDane extends GSController
 			stav = this.stav,
 			ctvrtleti = this.posledniCtvrtleti,
 			rok = this.posledniRok,
-			citadela = this.citadela
+			citadela = this.citadela,
+			sazba = this.sazba,
+			hraniceZaloh = this.hraniceZaloh
 		};
 		if (this.w != null) data.w <- this.w;
 		return data;
@@ -61,6 +66,8 @@ class EduMiseDane extends GSController
 		if ("rok" in data) this.posledniRok = data.rok;
 		if ("citadela" in data) this.citadela = data.citadela;
 		if ("w" in data) this.w = data.w;
+		if ("sazba" in data) this.sazba = data.sazba;
+		if ("hraniceZaloh" in data) this.hraniceZaloh = data.hraniceZaloh;
 	}
 }
 
@@ -89,6 +96,7 @@ function EduMiseDane::Zaznam(firma)
 function EduMiseDane::Uctuj(firma, castka, zprava)
 {
 	if (castka == 0) return;
+	if (this.w != null) this.DoPokladny(firma, castka);
 	GSCompany.ChangeBankBalance(firma, -castka, GSCompany.EXPENSES_OTHER, GSMap.TILE_INVALID);
 	// ChangeBankBalance samo nic nehlasi, takze zpravu musime poslat sami —
 	// jinak zakovi jen zmizi penize a nepochopi proc.
@@ -220,6 +228,7 @@ function EduMiseDane::Dane()
 		// Prvni ctvrtleti noveho roku je zuctovaci, ostatni jsou zalohova.
 		if (rok > this.posledniRok) {
 			this.ProKazdouFirmu("zuctovani", rok);
+			if (this.w != null) this.RocniRozpocet(rok - 1);
 			this.posledniRok = rok;
 		} else {
 			this.ProKazdouFirmu("zaloha", rok);
@@ -230,8 +239,8 @@ function EduMiseDane::Dane()
 
 function EduMiseDane::Start()
 {
-	this.sazba = GSController.GetSetting("sazba");
-	this.hraniceZaloh = GSController.GetSetting("hranice_zaloh");
+	if (this.sazba == null) this.sazba = GSController.GetSetting("sazba");
+	if (this.hraniceZaloh == null) this.hraniceZaloh = GSController.GetSetting("hranice_zaloh");
 	if (this.stav == null) this.stav = {};
 	if (this.posledniCtvrtleti == null) this.posledniCtvrtleti = this.Ctvrtleti();
 	if (this.posledniRok == null) this.posledniRok = this.Rok();

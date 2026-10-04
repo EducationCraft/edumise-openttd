@@ -405,6 +405,8 @@ class Harness:
         li = a.ask({"t": "debug", "c": c1, "p": 500}, "loaninit", c=c1)
         c("pending loan-init completes once the gap is closed", li["ok"] and a.fin()[c1]["cash"] == 0, li)
 
+        self.mayor(a, c0, c1, town)
+
         # Hold: the current op completes first, then nothing applies until the session runs again.
         m = a.mark()
         self.seq += 1
@@ -443,6 +445,8 @@ class Harness:
         dump2 = a.ask({"t": "debug", "what": "dump"}, "debug")
         c("load keeps inited", sorted(dump2["inited"]) == sorted(dump["inited"]) and dump2["pending"] == [],
           (dump, dump2))
+        c("load keeps treasury, tax rate and Citadela",
+          all(dump2[k] == dump[k] for k in ("pokl", "sazba", "citadela")), (dump, dump2))
 
         # A company founded while paused: no money command until the session runs.
         m = a.mark()
@@ -497,6 +501,59 @@ class Harness:
         c("no script errors or oversized admin messages",
           "GSAdmin.Send failed" not in log and "Your script made an error" not in log,
           [x for x in log.splitlines() if "error" in x.lower()][-10:])
+
+    def mayor(self, a, c0, c1, town):
+        """Mayor ops (contract §4.4, D21/D23): deity mode, ack p = what was actually applied."""
+        c = self.check
+        dump = a.ask({"t": "debug", "what": "dump"}, "debug")
+        p0 = dump["pokl"]
+        c("treasury starts at 20,000 (plus taxes paid) and Citadela is a town",
+          p0 >= 20000 and isinstance(dump["citadela"], int), dump)
+        since = a.mark()
+        a.to_gs({"t": "report", "what": "fin"})
+        page0 = a.expect(since, lambda m: m["t"] == "fin" and m["pg"] == 0, what="fin page 0")
+        c("fin page 0 carries pokl", page0.get("pokl") == p0, page0)
+
+        ack = self.op(a, "fine", s=1, c=c0, p=500)
+        c("fine at the rescue line -> nothing_to_fine", not ack["ok"] and ack["r"] == "nothing_to_fine", ack)
+        cash = a.fin()[c0]["cash"]
+        ack = self.op(a, "grant", s=1, c=c0, p=1000)
+        dump = a.ask({"t": "debug", "what": "dump"}, "debug")
+        c("grant: cash +1000 from the treasury, ack p",
+          ack["ok"] and ack.get("p") == 1000 and a.fin()[c0]["cash"] == cash + 1000 and dump["pokl"] == p0 - 1000,
+          (ack, dump))
+        ack = self.op(a, "grant", s=1, c=c1, p=1000)
+        c("grant to a company not bound to the slot -> no_company", not ack["ok"] and ack["r"] == "no_company", ack)
+
+        a.ask({"t": "debug", "c": c1, "p": 3000}, "debug")
+        m = a.mark()
+        a.fin()  # month marker for needs_per_month
+        ack = self.op(a, "fine", s=2, c=c1, p=3481)
+        f = a.fin()[c1]
+        c("fine clipped to positive cash, ack p = applied",
+          ack["ok"] and ack.get("p") == 3000 and f["cash"] == 0, (ack, f))
+        a.wait(5)
+        c("no need after a fine", not any(x["t"] == "need" and x["c"] == c1 for x in a.gs[m:]))
+
+        a.ask({"t": "debug", "pokl": 0}, "debug")
+        ack = self.op(a, "grant", s=1, c=c0, p=1)
+        c("grant from an empty treasury -> treasury_empty", not ack["ok"] and ack["r"] == "treasury_empty", ack)
+        ack = self.op(a, "expand", v=town, p=1)
+        c("expand from an empty treasury -> treasury_empty", not ack["ok"] and ack["r"] == "treasury_empty", ack)
+        a.ask({"t": "debug", "pokl": 20000}, "debug")
+
+        ack = self.op(a, "tax", v=30)
+        dump = a.ask({"t": "debug", "what": "dump"}, "debug")
+        c("tax without a company sets the rate", ack["ok"] and dump["sazba"] == 30, (ack, dump))
+        ack = self.op(a, "tax", v=60)
+        c("tax over 50 -> invalid", not ack["ok"] and ack["r"] == "invalid", ack)
+        ack = self.op(a, "news", v="Zítra se staví most.")
+        c("news without a company", ack["ok"], ack)
+        ack = self.op(a, "expand", v=town, p=3)
+        dump = a.ask({"t": "debug", "what": "dump"}, "debug")
+        c("expand charges only houses actually built",
+          (ack["ok"] and 1 <= ack.get("p", 0) <= 3 and dump["pokl"] == 20000 - ack["p"] * 1000) or
+          (not ack["ok"] and ack["r"] == "action_unavailable" and dump["pokl"] == 20000), (ack, dump))
 
     def client_hooks(self, a, srv, other, town):
         """§5 tests 1, 2 and 5 through a real game socket: what a pupil's client sends."""
