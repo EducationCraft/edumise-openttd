@@ -159,6 +159,18 @@
 	return ::Company::Get(ScriptCompany::FromScriptCompanyID(company))->old_economy[quarter - 1].expenses;
 }
 
+/* static */ Money ScriptCompany::GetAnnualExpenseValue(ScriptCompany::CompanyID company, SQInteger year_ago, ExpensesType expenses_type)
+{
+	company = ResolveCompanyID(company);
+	if (company == ScriptCompany::COMPANY_INVALID) return 0;
+	const auto &years = ::Company::Get(ScriptCompany::FromScriptCompanyID(company))->yearly_expenses;
+	if (year_ago < 0 || year_ago >= static_cast<SQInteger>(years.size())) return 0;
+	if (expenses_type >= to_underlying(::ExpensesType::End)) return 0;
+
+	/* Stored as costs: revenue is negative there. */
+	return -years[year_ago][static_cast<::ExpensesType>(expenses_type)];
+}
+
 /* static */ SQInteger ScriptCompany::GetQuarterlyCargoDelivered(ScriptCompany::CompanyID company, SQInteger quarter)
 {
 	company = ResolveCompanyID(company);
