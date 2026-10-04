@@ -24,7 +24,7 @@ async function connect() {
 describe.skipIf(!secret)('real OpenTTD server', () => {
   it.runIf(phase === 'first')('secure admin join, rcon save into /data/save', async () => {
     const { admin, welcome } = await connect();
-    expect(welcome.mapX).toBe(256); // map_x = 8 (A6)
+    expect(welcome.mapX).toBe(1024); // map_x = 10
     const lines = await admin.rcon('save current');
     expect(lines.some((l) => l.includes('Map successfully saved'))).toBe(true);
     expect(existsSync(`${data}/save/current.sav`)).toBe(true);
