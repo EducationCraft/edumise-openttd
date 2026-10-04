@@ -39,6 +39,12 @@ describe('ticket verification (§6.3, §6.4)', () => {
     expect(new TicketVerifier(KEY, GAME, NOW + 1).verify(signTicket(KEY, t()), NOW + 2)).toBeNull();
   });
 
+  it('mayor tickets are accepted without a pupil; unknown roles are refused', () => {
+    const verifier = v();
+    expect(verifier.verify(signTicket(KEY, t({ r: 'mayor', s: 'ignored' })), NOW)).toMatchObject({ r: 'mayor', s: null });
+    expect(verifier.verify(signTicket(KEY, t({ r: 'admin' as any })), NOW)).toBeNull();
+  });
+
   it('spectator tickets carry no pupil', () => {
     expect(v().verify(signTicket(KEY, t({ r: 'spectator', s: 'ignored' })), NOW)).toMatchObject({ r: 'spectator', s: null });
   });
@@ -65,7 +71,7 @@ describe('WSS → TCP proxy', () => {
 
   const listen = (s: net.Server | http.Server) => new Promise<number>((r) => s.listen(0, '127.0.0.1', () => r((s.address() as net.AddressInfo).port)));
 
-  async function setup(startedAt: number) {
+  async function setup(startedAt: number, spectatorCap?: number) {
     const peers: string[] = [];
     game = net.createServer((sock) => {
       peers.push(sock.remoteAddress!);
@@ -80,6 +86,7 @@ describe('WSS → TCP proxy', () => {
       gameHost: '127.0.0.1',
       gamePort,
       log: () => {},
+      spectatorCap,
     });
     const port = await listen(gw);
     return { peers, registry, url: (tok: string) => `ws://127.0.0.1:${port}/g/${GAME}?t=${encodeURIComponent(tok)}` };
@@ -98,6 +105,23 @@ describe('WSS → TCP proxy', () => {
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
     expect(registry.size).toBe(0);
+  });
+
+  it('caps spectators (1013 busy) but never mayors or pupils', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { registry, url } = await setup(now - 5, 2);
+    registry.set('127.77.9.1', { studentId: null, role: 'spectator' });
+    registry.set('127.77.9.2', { studentId: null, role: 'spectator' });
+    const open = (tk: Partial<Ticket>) =>
+      new Promise<number>((r) => {
+        // The server closes right after the handshake when it refuses; 4000 = we closed an accepted one.
+        const ws = new WebSocket(url(signTicket(KEY, t({ iat: now, exp: now + 120, ...tk }))), 'binary');
+        ws.on('open', () => setTimeout(() => ws.readyState === ws.OPEN && ws.close(4000), 50));
+        ws.on('close', (c) => r(c));
+      });
+    expect(await open({ r: 'spectator', s: null })).toBe(1013);
+    expect(await open({ r: 'mayor', s: null })).toBe(4000);
+    expect(await open({ r: 'pupil' })).toBe(4000);
   });
 
   it('closes 4401 for a ticket older than the process', async () => {

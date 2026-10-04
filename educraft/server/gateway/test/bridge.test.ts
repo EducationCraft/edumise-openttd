@@ -119,6 +119,35 @@ describe('op delivery (§4.5 step 5)', () => {
     expect(w.of('POST', '/ops/2/result')[0].body).toEqual({ status: 'failed', reason: 'name_taken' });
   });
 
+  it('mayor ops: tax/news/expand without slot/company, grant/fine with them; ack p goes to the result', async () => {
+    w.ops = [
+      { seq: 1, kind: 'grant', slot: 1, company: 0, pounds: 1000, noop: false },
+      { seq: 2, kind: 'fine', slot: 1, company: 0, pounds: 500, noop: false },
+      { seq: 3, kind: 'tax', slot: null, company: null, value: 25, noop: false },
+      { seq: 4, kind: 'news', slot: null, company: null, value: 'Zítra se staví most.', noop: false },
+      { seq: 5, kind: 'expand', slot: null, company: null, value: 12, houses: 5, noop: false },
+    ];
+    gs.ackP.set(1, 1000).set(2, 300).set(5, 3);
+    gs.fail.set(4, 'invalid');
+    await b.attach(gs);
+    await run(2_000);
+    expect(gs.of('op')).toEqual([
+      { t: 'op', seq: 1, k: 'grant', s: 1, c: 0, p: 1000 },
+      { t: 'op', seq: 2, k: 'fine', s: 1, c: 0, p: 500 },
+      { t: 'op', seq: 3, k: 'tax', v: 25 },
+      { t: 'op', seq: 4, k: 'news', v: 'Zítra se staví most.' },
+      { t: 'op', seq: 5, k: 'expand', v: 12, p: 5 },
+    ]);
+    const body = (seq: number) => w.of('POST', `/ops/${seq}/result`)[0].body;
+    expect([1, 2, 3, 4, 5].map(body)).toEqual([
+      { status: 'applied', p: 1000 },
+      { status: 'applied', p: 300 },
+      { status: 'applied' },
+      { status: 'failed', reason: 'invalid' },
+      { status: 'applied', p: 3 },
+    ]);
+  });
+
   it('redelivers from the GS last after a rollback', async () => {
     gs.last = 5;
     gs.ring = [[5, 1]];
@@ -340,6 +369,17 @@ describe('GS reports', () => {
     expect(b.slots.get(1)!.company).toBeNull();
     expect(w.of('PUT', '/finance').at(-1)!.body).toMatchObject({ gameDate: '1951-04-01', final: false });
   });
+
+  it('forwards the treasury (fin page 0 pokl) as treasuryPounds, monthly and on report', async () => {
+    gs.pokl = 20000;
+    await b.attach(gs);
+    expect(w.of('PUT', '/finance')[0].body.treasuryPounds).toBe(20000);
+    b.onGs(JSON.stringify({ t: 'fin', pg: 0, pgs: 2, d: '1951-04-01', pokl: 23456, co: gs.fin }));
+    b.onGs(JSON.stringify({ t: 'fin', pg: 1, pgs: 2, d: '1951-04-01', co: [] }));
+    b.onGs(JSON.stringify({ t: 'names', pg: 0, pgs: 1, co: [[0, 'X']] }));
+    await run(0);
+    expect(w.of('PUT', '/finance').at(-1)!.body).toMatchObject({ gameDate: '1951-04-01', treasuryPounds: 23456 });
+  });
 });
 
 describe('admission (§6.3)', () => {
@@ -349,6 +389,7 @@ describe('admission (§6.3)', () => {
     registry.set('127.77.0.2', { studentId: 's-2', role: 'pupil' });
     registry.set('127.77.0.3', { studentId: null, role: 'spectator' });
     registry.set('127.77.0.4', { studentId: 's-9', role: 'pupil' });
+    registry.set('127.77.0.5', { studentId: null, role: 'mayor' });
     await b.attach(gs);
   });
 
@@ -360,16 +401,62 @@ describe('admission (§6.3)', () => {
     b.onClientInfo(8, '127.77.0.2');
     b.onClientInfo(9, '127.77.0.4');
     await run(0);
-    expect(gs.rcons).toEqual([
+    // Admissions run concurrently (each awaits its own GET /slots): compare as a set.
+    expect([...gs.rcons].sort()).toEqual([
       'kick 5',
       'edu_admit 6 spectator',
       'edu_admit 7 1',
       'edu_admit 8 new',
       'say_client 8 "Založ si svou firmu: Seznam hráčů → Nová firma."',
       'edu_admit 9 spectator',
-      'say_client 9 "Nejsi ve firmě – požádej učitele o přiřazení."',
-    ]);
-    expect(w.of('GET', '/slots')).toHaveLength(1); // s-9 unknown → refreshed once
+      'say_client 9 "Nejsi v žádném týmu – požádej učitele o zařazení."',
+    ].sort());
+    expect(gs.rcons.indexOf('edu_admit 8 new')).toBeLessThan(gs.rcons.indexOf('say_client 8 "Založ si svou firmu: Seznam hráčů → Nová firma."'));
+    expect(w.of('GET', '/slots')).toHaveLength(3); // every pupil admission reads a fresh map (D20)
+  });
+
+  it('a mayor never gets a company: spectator + chat, no slot lookup', async () => {
+    b.onClientInfo(10, '127.77.0.5');
+    await run(0);
+    expect(gs.rcons).toEqual(['edu_admit 10 spectator', 'say_client 10 "Jsi starosta. Ovládání: EduMise → Učitel → Starosta."']);
+    expect(w.of('GET', '/slots')).toHaveLength(0);
+  });
+
+  it('pupil admission uses the fresh map: a pupil moved to another team joins its company', async () => {
+    w.slots = [{ slot: 1, company: 0, studentIds: ['s-1', 's-2'] }];
+    b.onClientInfo(8, '127.77.0.2');
+    await run(0);
+    expect(gs.rcons).toEqual(['edu_admit 8 1']);
+  });
+
+  it('slotsRev change: moved pupils are demoted with a chat, the others stay', async () => {
+    let rev = 0;
+    w.override.set('GET /ops', () => ({ status: 200, body: { data: { ops: [], session: 'running', slotsRev: rev } } }));
+    b.onClientInfo(7, '127.77.0.1'); // s-1 → company 0
+    b.onClientInfo(8, '127.77.0.2'); // s-2 → new in slot 2
+    b.onClientInfo(10, '127.77.0.5'); // mayor
+    await run(2_000);
+    const before = gs.rcons.length;
+    expect(gs.rcons.slice(before)).toEqual([]);
+    // s-1 moves to slot 2 (no company), slot 1 keeps its company without members.
+    w.slots = [{ slot: 1, company: 0, studentIds: [] }, { slot: 2, company: null, studentIds: ['s-2', 's-1'] }];
+    rev = 1;
+    await run(2_000);
+    expect(gs.rcons.slice(before)).toEqual(['edu_admit 7 spectator', 'say_client 7 "Tvůj tým se změnil – připoj se znovu."']);
+    expect(b.slots.get(2)!.studentIds).toEqual(['s-2', 's-1']);
+    await run(2_000); // same rev: nothing more
+    expect(gs.rcons.length).toBe(before + 2);
+  });
+
+  it('not_member on founding: spectator, reset the company, chat', async () => {
+    w.override.set('POST /companies', () => ({ status: 409, body: { error: 'not_member' } }));
+    b.onClientInfo(8, '127.77.0.2');
+    await run(0);
+    b.onClientUpdate(8, 4);
+    await run(1_000);
+    expect(w.of('POST', '/companies')[0].body.studentId).toBe('s-2');
+    expect(gs.rcons.slice(-3)).toEqual(['edu_admit 8 spectator', 'reset_company 5', 'say_client 8 "Tvůj tým se změnil – připoj se znovu."']);
+    expect(gs.of('bind')).toEqual([]);
   });
 
   it('maps client_id → ip only from CLIENT_INFO', async () => {
@@ -384,7 +471,7 @@ describe('admission (§6.3)', () => {
     await run(0);
     b.onClientUpdate(8, 4);
     await run(1_000);
-    expect(w.of('POST', '/companies')[0].body).toEqual({ slot: 2, company: 4, companyName: 'Nová firma s.r.o.' });
+    expect(w.of('POST', '/companies')[0].body).toEqual({ slot: 2, company: 4, companyName: 'Nová firma s.r.o.', studentId: 's-2' });
     expect(gs.of('bind')).toEqual([{ t: 'bind', c: 4, s: 2 }]);
     expect(gs.rcons).toContain('save current');
     expect(gs.rcons.at(-1)).toBe('edu_admit 8 5');

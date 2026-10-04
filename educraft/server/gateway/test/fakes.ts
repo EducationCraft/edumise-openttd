@@ -22,6 +22,9 @@ export class FakeGs implements AdminLink {
   /** seq -> number of deliveries to swallow before answering. */
   dropFirst = new Map<number, number>();
   fail = new Map<number, string>();
+  /** seq -> p of a mayor op ack (what the GS actually applied). */
+  ackP = new Map<number, number>();
+  pokl: number | undefined = undefined;
   saveOk = true;
   fin = [{ c: 0, cash: 100, loan: 0, ml: 13924, val: 500, col: 3, i0: 1, e0: -2, i1: 3, e1: -4 }];
 
@@ -59,7 +62,7 @@ export class FakeGs implements AdminLink {
         return;
       case 'report':
         if (msg.what === 'towns') return this.reply({ t: 'towns', pg: 0, pgs: 1, tw: [[0, 'Citadela']] });
-        this.reply({ t: 'fin', pg: 0, pgs: 1, d: '1951-03-01', co: this.fin });
+        this.reply({ t: 'fin', pg: 0, pgs: 1, d: '1951-03-01', pokl: this.pokl, co: this.fin });
         return this.reply({ t: 'names', pg: 0, pgs: 1, co: [[0, 'Rychlá doprava']] });
       case 'op':
         return this.op(msg);
@@ -83,7 +86,8 @@ export class FakeGs implements AdminLink {
     const r = msg.k === 'noop' ? undefined : this.fail.get(msg.seq);
     this.last = msg.seq;
     this.ring = [...this.ring, [msg.seq, r ? 0 : 1] as [number, number]].slice(-64);
-    this.reply(r ? { t: 'ack', seq: msg.seq, ok: false, r } : { t: 'ack', seq: msg.seq, ok: true });
+    const p = this.ackP.get(msg.seq);
+    this.reply(r ? { t: 'ack', seq: msg.seq, ok: false, r } : { t: 'ack', seq: msg.seq, ok: true, ...(p !== undefined ? { p } : {}) });
   }
 
   async rcon(cmd: string): Promise<string[]> {

@@ -54,6 +54,7 @@ async function main(): Promise<void> {
     gameHost,
     gamePort: Number(env('OPENTTD_PORT', '3979')),
     log,
+    spectatorCap: Number(env('SPECTATOR_CAP', '20')),
   }).listen(Number(env('PORT', '8080')));
 
   const secret = Uint8Array.from(Buffer.from(adminKey, 'hex'));

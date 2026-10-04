@@ -7,9 +7,10 @@
 import { copyFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdminLink } from './admin';
+import type { Role } from './ticket';
 import type { Wallet, WalletResp } from './wallet';
 
-export type Role = 'pupil' | 'spectator';
+export type { Role };
 /** ip -> who the proxy admitted on that loopback source address (§6.3 step 1). */
 export type Registry = Map<string, { studentId: string | null; role: Role }>;
 export type Log = (level: 'info' | 'warn' | 'error', msg: string, extra?: Record<string, unknown>) => void;
@@ -34,6 +35,12 @@ export const WINDOW = 16;
 const MAX_COMPANIES = 15;
 const CLIENT_ID_SERVER = 1;
 const SAVED_OK = 'Map successfully saved';
+const MSG = {
+  mayor: 'Jsi starosta. Ovládání: EduMise → Učitel → Starosta.',
+  found: 'Založ si svou firmu: Seznam hráčů → Nová firma.',
+  noTeam: 'Nejsi v žádném týmu – požádej učitele o zařazení.',
+  teamChanged: 'Tvůj tým se změnil – připoj se znovu.',
+};
 
 interface WalletOp {
   seq: number;
@@ -41,6 +48,7 @@ interface WalletOp {
   slot?: number;
   company?: number | null;
   pounds?: number;
+  houses?: number;
   value?: number | string;
   noop?: boolean;
 }
@@ -76,6 +84,7 @@ interface Waiter {
 interface FinBatch {
   date: string;
   pgs: number;
+  pokl?: number;
   pages: Map<number, any[]>;
   namesPgs: number | null;
   names: Map<number, [number, string][]>;
@@ -97,6 +106,8 @@ export class Bridge {
   stopping = false;
   sendBlocked = false;
   limited = false;
+  /** Last `slotsRev` seen in GET /ops (D20); a change refreshes the slot map and demotes moved pupils. */
+  slotsRev: number | null = null;
 
   private admin: AdminLink | null = null;
   private waiters: Waiter[] = [];
@@ -350,9 +361,12 @@ export class Bridge {
 
   private opMsg(op: WalletOp): object {
     if (op.noop) return { t: 'op', seq: op.seq, k: 'noop' };
-    const m: Record<string, unknown> = { t: 'op', seq: op.seq, k: op.kind, s: op.slot, c: op.company ?? null };
-    if (op.pounds !== undefined) m.p = op.pounds;
-    if (op.value !== undefined) m.v = op.value;
+    const m: Record<string, unknown> = { t: 'op', seq: op.seq, k: op.kind };
+    // tax/news/expand carry no slot and no company (§4.3).
+    if (op.slot != null) Object.assign(m, { s: op.slot, c: op.company ?? null });
+    const p = op.pounds ?? op.houses;
+    if (p != null) m.p = p;
+    if (op.value != null) m.v = op.value;
     return m;
   }
 
@@ -367,6 +381,11 @@ export class Bridge {
     try {
       const r = await this.wcall('GET', `/ops?after=${this.cursor}&limit=${WINDOW}`);
       if (r.status !== 200) return;
+      const rev = r.body.data.slotsRev;
+      if (typeof rev === 'number' && rev !== this.slotsRev) {
+        this.slotsRev = rev;
+        await this.onTeamsChanged();
+      }
       for (const op of (r.body.data.ops ?? []) as WalletOp[]) {
         if (!this.canSend()) break;
         if (op.seq <= this.cursor || this.inflight.has(op.seq)) continue; // acked while this poll ran
@@ -404,14 +423,16 @@ export class Bridge {
     }
   }
 
-  private onAck(m: { seq: number; ok: boolean; r?: string }): void {
+  private onAck(m: { seq: number; ok: boolean; r?: string; p?: number }): void {
     const f = this.inflight.get(m.seq);
     if (!f) return; // a re-ack for something already resolved
     this.inflight.delete(m.seq);
     if (m.seq > this.cursor) this.cursor = m.seq;
     // A failed op travels as noop and is already terminal in the wallet: nothing to report.
     if (f.op.noop) return;
-    this.queueResult(m.seq, m.ok ? { status: 'applied' } : { status: 'failed', reason: m.r ?? 'invalid' });
+    // Mayor ops ack what was actually applied (pounds | houses, §4.3); a ring re-ack has no p.
+    const applied = typeof m.p === 'number' ? { status: 'applied', p: m.p } : { status: 'applied' };
+    this.queueResult(m.seq, m.ok ? applied : { status: 'failed', reason: m.r ?? 'invalid' });
   }
 
   private onNack(m: { seq: number; expect: number; r: string }): void {
@@ -570,6 +591,7 @@ export class Bridge {
   private onFin(m: any): void {
     if (m.t === 'fin') {
       if (m.pg === 0 || !this.fin) this.fin = { date: m.d, pgs: m.pgs, pages: new Map(), namesPgs: null, names: new Map() };
+      if (typeof m.pokl === 'number') this.fin.pokl = m.pokl;
       this.fin.pages.set(m.pg, m.co ?? []);
     } else {
       if (!this.fin) return;
@@ -594,12 +616,12 @@ export class Bridge {
       inc1: c.i1,
       exp1: c.e1,
     }));
-    const report = { t: '$fin', gameDate: b.date, companies };
+    const report = { t: '$fin', gameDate: b.date, companies, treasuryPounds: b.pokl };
     // An explicit report() waits for it; a monthly one is forwarded as a live update.
     if (this.waiters.some((w) => w.pred(report))) {
       this.onGs(JSON.stringify(report));
     } else {
-      void this.wcall('PUT', '/finance', { gameDate: b.date, final: false, companies }).catch((e) =>
+      void this.wcall('PUT', '/finance', { gameDate: b.date, final: false, treasuryPounds: b.pokl, companies }).catch((e) =>
         this.log('warn', 'monthly finance not delivered', { err: String(e) }),
       );
     }
@@ -626,7 +648,7 @@ export class Bridge {
     const got = this.waitGs((m) => m.t === '$fin', T.reportWait);
     this.gs({ t: 'report', what: 'fin' });
     const rep = await got;
-    const body = { gameDate: rep.gameDate, final, companies: rep.companies };
+    const body = { gameDate: rep.gameDate, final, treasuryPounds: rep.treasuryPounds, companies: rep.companies };
     let err = '';
     for (let i = 1; i <= attempts; i++) {
       if (i > 1) await sleep(2_000 * (i - 1));
@@ -807,20 +829,20 @@ export class Bridge {
     const c = this.clients.get(id);
     if (!c) return;
     try {
-      if (c.role === 'spectator') {
+      if (c.role !== 'pupil') {
+        // A mayor has no company: spectator + chat; powers live in the EduMise web (D21).
         c.admit = 'spectator';
         await this.rcon(`edu_admit ${id} spectator`);
+        if (c.role === 'mayor') await this.say(id, MSG.mayor);
         return;
       }
-      let slot = this.slotOf(c.studentId);
-      if (slot === undefined) {
-        await this.refreshSlots();
-        slot = this.slotOf(c.studentId);
-      }
+      // Teams change mid-game (D20): always decide from a fresh slot map.
+      await this.refreshSlots();
+      const slot = this.slotOf(c.studentId);
       if (slot === undefined) {
         c.admit = 'spectator';
         await this.rcon(`edu_admit ${id} spectator`);
-        await this.say(id, 'Nejsi ve firmě – požádej učitele o přiřazení.');
+        await this.say(id, MSG.noTeam);
         return;
       }
       c.slot = slot;
@@ -831,10 +853,27 @@ export class Bridge {
       } else {
         c.admit = 'new';
         await this.rcon(`edu_admit ${id} new`);
-        await this.say(id, 'Založ si svou firmu: Seznam hráčů → Nová firma.');
+        await this.say(id, MSG.found);
       }
     } catch (e) {
       this.log('error', 'admission failed', { id, err: String(e) });
+    }
+  }
+
+  /**
+   * §6.3 team change: a pupil whose admitted company (or `new` slot) is no longer their
+   * team's goes back to spectator and must reconnect; the next admission uses the new map.
+   */
+  private async onTeamsChanged(): Promise<void> {
+    await this.refreshSlots();
+    for (const [id, c] of this.clients) {
+      if (c.role !== 'pupil' || c.admit === null || c.admit === 'spectator' || c.admit === 'founding') continue;
+      const slot = this.slotOf(c.studentId);
+      const ok = c.admit === 'new' ? slot === c.slot : slot !== undefined && this.slots.get(slot)!.company === c.admit;
+      if (ok) continue;
+      c.admit = 'spectator';
+      await this.rcon(`edu_admit ${id} spectator`).catch(() => undefined);
+      await this.say(id, MSG.teamChanged);
     }
   }
 
@@ -845,7 +884,7 @@ export class Bridge {
     let r: WalletResp | null = null;
     for (let i = 0; i < 3 && !r; i++) {
       try {
-        r = await this.wcall('POST', '/companies', { slot, company, companyName: this.companyNames.get(company) ?? '' });
+        r = await this.wcall('POST', '/companies', { slot, company, companyName: this.companyNames.get(company) ?? '', studentId: c.studentId });
         if (r.status >= 500 || r.status === 429) r = null;
       } catch {
         r = null;
@@ -870,6 +909,14 @@ export class Bridge {
       c.admit = bound;
       await this.rcon(`edu_admit ${id} ${bound + 1}`).catch(() => undefined);
       await this.rcon(`reset_company ${company + 1}`).catch(() => undefined);
+      return;
+    }
+    if (r?.status === 409 && err === 'not_member') {
+      // The team changed between admission and founding (D20): the company is not theirs.
+      c.admit = 'spectator';
+      await this.rcon(`edu_admit ${id} spectator`).catch(() => undefined);
+      await this.rcon(`reset_company ${company + 1}`).catch(() => undefined);
+      await this.say(id, MSG.teamChanged);
       return;
     }
     if (r?.status === 409 && err === 'company_taken' && !retried) {

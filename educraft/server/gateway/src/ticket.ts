@@ -5,10 +5,13 @@
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
+export type Role = 'pupil' | 'spectator' | 'mayor';
+const ROLES: readonly string[] = ['pupil', 'spectator', 'mayor'];
+
 export interface Ticket {
   g: string;
   s: string | null;
-  r: 'pupil' | 'spectator';
+  r: Role;
   iat: number;
   exp: number;
   n: string;
@@ -40,7 +43,7 @@ export class TicketVerifier {
       return null;
     }
     if (t.g !== this.gameKey) return null;
-    if (t.r !== 'pupil' && t.r !== 'spectator') return null;
+    if (!ROLES.includes(t.r)) return null; // unknown role: fail closed (§6.4)
     if (t.r === 'pupil' && (typeof t.s !== 'string' || !t.s)) return null;
     if (!Number.isInteger(t.iat) || !Number.isInteger(t.exp)) return null;
     if (t.exp <= nowS || t.exp - t.iat > MAX_TTL_S || t.iat < this.startedAtS) return null;

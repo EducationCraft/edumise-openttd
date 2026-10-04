@@ -7,7 +7,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { Log, Registry } from './bridge';
-import type { TicketVerifier } from './ticket';
+import type { Role, TicketVerifier } from './ticket';
 
 export interface ProxyConfig {
   gameKey: string;
@@ -16,6 +16,8 @@ export interface ProxyConfig {
   gameHost: string;
   gamePort: number;
   log: Log;
+  /** Max `spectator` connections per game (§6.3, env SPECTATOR_CAP); pupils and mayors are never capped. */
+  spectatorCap?: number;
 }
 
 export const CLOSE_UNAUTHORIZED = 4401;
@@ -72,6 +74,11 @@ export function createGateway(cfg: ProxyConfig): http.Server {
         ws.close(CLOSE_UNAUTHORIZED, 'unauthorized');
         return;
       }
+      const cap = cfg.spectatorCap ?? 20;
+      if (ticket.r === 'spectator' && [...cfg.registry.values()].filter((x) => x.role === 'spectator').length >= cap) {
+        ws.close(1013, 'busy');
+        return;
+      }
       const ip = pool.take();
       if (!ip) {
         ws.close(1013, 'busy');
@@ -83,7 +90,7 @@ export function createGateway(cfg: ProxyConfig): http.Server {
   return server;
 }
 
-function pipe(ws: WebSocket, ip: string, cfg: ProxyConfig, pool: LoopbackPool, studentId: string | null, role: 'pupil' | 'spectator'): void {
+function pipe(ws: WebSocket, ip: string, cfg: ProxyConfig, pool: LoopbackPool, studentId: string | null, role: Role): void {
   cfg.registry.set(ip, { studentId, role });
   const tcp = net.connect({ host: cfg.gameHost, port: cfg.gamePort, localAddress: ip });
   let closed = false;
