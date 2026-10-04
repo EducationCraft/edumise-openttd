@@ -120,16 +120,36 @@ describe('world reset', () => {
     expect(exits).toEqual([1]);
   });
 
+  it('a failed move keeps the boot retrying until the archive is done, then exits', async () => {
+    writeFileSync(join(dir, 'archive'), 'not a dir'); // mkdir archive/r1 fails
+    w.setHello({ resetId: 'r1' }, 409, 'reset_pending');
+    await b.attach(gs);
+    expect(exits).toEqual([]);
+    rmSync(join(dir, 'archive'));
+    await run(6_000);
+    expect(w.of('POST', '/hello').length).toBe(2);
+    expect(readFileSync(join(dir, 'archive', 'r1', 'save', 'current.sav'), 'utf8')).toBe('old map');
+    expect(exits).toEqual([1]);
+  });
+
+  it('a torn reset-id goes out as null', async () => {
+    writeFileSync(join(dir, 'reset-id'), '');
+    w.setHello({ resetId: 'r1' }, 409, 'reset_pending');
+    await b.attach(gs);
+    expect(w.of('POST', '/hello')[0].body.resetId).toBeNull();
+    expect(readFileSync(join(dir, 'reset-id'), 'utf8')).toBe('r1');
+  });
+
   it('a new map hellos with the resetId and is adopted at the wallet base seq', async () => {
     rmSync(join(dir, 'save', 'current.sav'));
     rmSync(join(dir, 'snapshots', 'a.sav'));
     writeFileSync(join(dir, 'reset-id'), 'r1');
     gs.game = null;
-    w.setHello({ adopt: true, baseSeq: 40 });
+    w.setHello({ adopt: true, baseSeq: 40, game: 'c000000000001.r1' });
     w.ops = [deposit(41)];
     await b.attach(gs);
     expect(w.of('POST', '/hello')[0].body).toMatchObject({ gsGame: null, gsLastSeq: 0, resetId: 'r1' });
-    expect(gs.of('adopt')).toEqual([{ t: 'adopt', game: 'c000000000001', last: 40 }]);
+    expect(gs.of('adopt')).toEqual([{ t: 'adopt', game: 'c000000000001.r1', last: 40 }]);
     expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 40, final: false });
     expect(readFileSync(join(dir, 'save', 'current.seq'), 'utf8')).toBe('40');
     expect(readdirSync(dir)).not.toContain('reset-id');

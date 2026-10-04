@@ -34,6 +34,7 @@ export const T = {
 export const WINDOW = 16;
 const MAX_COMPANIES = 15;
 const CLIENT_ID_SERVER = 1;
+const RESET_ID = /^[\w-]{1,64}$/;
 const SAVED_OK = 'Map successfully saved';
 const MSG = {
   mayor: 'Jsi starosta. Ovládání: EduMise → Učitel → Starosta.',
@@ -261,12 +262,14 @@ export class Bridge {
       this.gs({ t: 'hello', v: 1 });
       const st = await this.waitGs((m) => m.t === 'state', T.stateWait);
       const resetFile = join(this.dataDir, 'reset-id');
+      const resetId = existsSync(resetFile) ? readFileSync(resetFile, 'utf8').trim() : '';
       const r = await this.wcall('POST', '/hello', {
         gsLastSeq: st.last,
         ring: st.ring ?? [],
         gsGame: st.game ?? null,
         bindings: st.co ?? [],
-        resetId: existsSync(resetFile) ? readFileSync(resetFile, 'utf8').trim() : null,
+        // A torn file goes out as null: the wallet answers reset_pending again and archiveWorld rewrites it.
+        resetId: RESET_ID.test(resetId) ? resetId : null,
       });
       if (r.status === 409 && r.body?.error === 'reset_pending') return this.archiveWorld(String(r.body.resetId));
       if (r.status === 409 && ['game_mismatch', 'rollback_refused'].includes(r.body?.error)) {
@@ -293,8 +296,10 @@ export class Bridge {
       if (d.adopt) {
         // §4.5 step 3: anchor the map to this game before any company exists.
         // After a world reset the new map continues the wallet's seq numbering from baseSeq.
-        this.gs({ t: 'adopt', game: this.gameKey, ...(typeof d.baseSeq === 'number' ? { last: d.baseSeq } : {}) });
-        const ad = await this.waitGs((m) => m.t === 'state' && m.game === this.gameKey, T.stateWait);
+        // The wallet names a reset world <gameKey>.<resetId>, so an older world's save never matches.
+        const game = typeof d.game === 'string' ? d.game : this.gameKey;
+        this.gs({ t: 'adopt', game, ...(typeof d.baseSeq === 'number' ? { last: d.baseSeq } : {}) });
+        const ad = await this.waitGs((m) => m.t === 'state' && m.game === game, T.stateWait);
         this.cursor = ad.last;
         rmSync(resetFile, { force: true });
         await this.save({ resume: false });
@@ -315,20 +320,23 @@ export class Bridge {
    * The wallet reset this class's world while the old map is still loaded: move save/ and
    * snapshots/ to archive/<resetId>/ and restart the task without a final save, so the
    * entrypoint generates a new map. reset-id is written first and each move is skipped
-   * once done, so a crash anywhere just repeats this on the next boot. Snapshots move
-   * before the save: an empty save/ next to snapshots would make the entrypoint refuse to start.
+   * once done, so a crash anywhere just repeats this on the next boot; a failed move throws
+   * into doBoot's retry, which hellos and lands here again. Snapshots move before the save:
+   * an empty save/ next to snapshots would make the entrypoint refuse to start.
    */
   private archiveWorld(resetId: string): void {
-    if (!/^[\w-]{1,64}$/.test(resetId)) throw new Error('reset_pending without a valid resetId');
-    this.stopping = true;
+    if (!RESET_ID.test(resetId)) throw new Error('reset_pending without a valid resetId');
     this.sid = null; // nothing to save at SIGTERM: this world is gone
-    writeFileSync(join(this.dataDir, 'reset-id'), resetId);
+    const file = join(this.dataDir, 'reset-id');
+    writeFileSync(file + '.tmp', resetId);
+    renameSync(file + '.tmp', file); // never a torn reset-id
     const dest = join(this.dataDir, 'archive', resetId);
     mkdirSync(dest, { recursive: true });
     for (const d of ['snapshots', 'save']) {
       if (!existsSync(join(dest, d)) && existsSync(join(this.dataDir, d))) renameSync(join(this.dataDir, d), join(dest, d));
     }
     this.log('info', 'world reset: old map archived, restarting for a new map', { resetId });
+    this.stopping = true; // only now: until the moves are done the boot retry must keep running
     this.exit(1);
   }
 
