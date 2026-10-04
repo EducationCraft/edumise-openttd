@@ -118,6 +118,23 @@
     return p;
   }
 
+  // Wallet hlasi running uz po hello serveru, load balancer ho ale zaradi az o ~10–20 s pozdeji (do te doby 503).
+  // Sonda bez listku: otevreni = server je za balancerem (gateway pak zavre jako unauthorized); listek se nespotrebuje.
+  // ponytail: max 60 s, pak se hra pusti stejne (horsi pripad = stara hlaska o timeoutu).
+  async function serverOdpovida(url) {
+    var konec = Date.now() + 60 * 1000;
+    while (Date.now() < konec) {
+      var ok = await new Promise(function (hotovo) {
+        var ws;
+        try { ws = new WebSocket(url.split('?')[0], 'binary'); } catch (e) { hotovo(true); return; }
+        ws.onopen = function () { ws.close(); hotovo(true); };
+        ws.onerror = function () { hotovo(false); };
+      });
+      if (ok) return;
+      await new Promise(function (dal) { setTimeout(dal, 3000); });
+    }
+  }
+
   // Spolecny vstup: listek → hra; chyby cesky.
   async function vstup(ziskejListek, jmeno) {
     var r;
@@ -127,7 +144,12 @@
       oznam('Chyba spojení', 'Nepodařilo se spojit se serverem.');
       return;
     }
-    if (r.status === 200) { hrajSListkem(ziskejListek, r.data, jmeno); return; }
+    if (r.status === 200) {
+      oznam('Připojuji…', 'Čekám, až server odpoví.');
+      await serverOdpovida(r.data.url);
+      hrajSListkem(ziskejListek, r.data, jmeno);
+      return;
+    }
     if (r.error === 'no_session') { oznam('Hodina Dopravy teď neběží.', 'Počkej, až ji učitel spustí.'); return; }
     if (r.error === 'wallet_not_found') { oznam('Nejsi v pilotu Dopravy.', 'Požádej učitele o přiřazení do hry.'); return; }
     if (r.status === 403) { oznam('Do této třídy nemáte přístup.', 'Vyberte jinou třídu.'); return; }
