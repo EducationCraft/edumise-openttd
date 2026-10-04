@@ -448,6 +448,41 @@ describe('admission (§6.3)', () => {
     expect(gs.rcons.length).toBe(before + 2);
   });
 
+  it('slotsRev change with a failed GET /slots is retried on the next poll', async () => {
+    let rev = 0;
+    let slotsDown = false;
+    w.override.set('GET /ops', () => ({ status: 200, body: { data: { ops: [], session: 'running', slotsRev: rev } } }));
+    w.override.set('GET /slots', () => (slotsDown ? { status: 503, body: {} } : undefined));
+    b.onClientInfo(7, '127.77.0.1'); // s-1 → company 0
+    await run(2_000);
+    const before = gs.rcons.length;
+    w.slots = [{ slot: 1, company: 0, studentIds: [] }, { slot: 2, company: null, studentIds: ['s-2', 's-1'] }];
+    rev = 1;
+    slotsDown = true;
+    await run(2_000);
+    expect(gs.rcons.slice(before)).toEqual([]);
+    expect(b.slotsRev).toBe(0);
+    slotsDown = false;
+    await run(2_000);
+    expect(gs.rcons.slice(before)).toEqual(['edu_admit 7 spectator', 'say_client 7 "Tvůj tým se změnil – připoj se znovu."']);
+    expect(b.slotsRev).toBe(1);
+  });
+
+  it('slotsRev change: a teamless spectator pupil now in a team is told to reconnect, once', async () => {
+    let rev = 0;
+    w.override.set('GET /ops', () => ({ status: 200, body: { data: { ops: [], session: 'running', slotsRev: rev } } }));
+    b.onClientInfo(9, '127.77.0.4'); // s-9 → no team
+    await run(2_000);
+    const before = gs.rcons.length;
+    w.slots = [...w.slots, { slot: 3, company: null, studentIds: ['s-9'] }];
+    rev = 1;
+    await run(2_000);
+    expect(gs.rcons.slice(before)).toEqual(['say_client 9 "Tvůj tým se změnil – připoj se znovu."']);
+    rev = 2;
+    await run(2_000);
+    expect(gs.rcons.length).toBe(before + 1);
+  });
+
   it('not_member on founding: spectator, reset the company, chat', async () => {
     w.override.set('POST /companies', () => ({ status: 409, body: { error: 'not_member' } }));
     b.onClientInfo(8, '127.77.0.2');

@@ -97,7 +97,9 @@
     var q = {};
     (location.hash || '').replace(/^#/, '').split('&').forEach(function (kv) {
       var i = kv.indexOf('=');
-      if (i > 0) q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1));
+      if (i > 0) {
+        try { q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); } catch (e) { /* vadne kodovani = jako bez parametru */ }
+      }
     });
     var uuid = function (v) { return UUID.test(v || '') ? v : null; };
     return { s: uuid(q.s), c: uuid(q.c), sid: q.as === 'pupil' ? uuid(q.sid) : null };

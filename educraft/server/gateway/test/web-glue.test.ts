@@ -150,6 +150,15 @@ describe('brana.js', () => {
     expect(b.tickets).toEqual([]);
   });
 
+  it('a malformed deep link (#c=%E0) is ignored and the class list still loads', async () => {
+    const { els, tickets } = load(jwt({ 'custom:student_id': 's-1' }), {
+      'GET /me/sessions': () => ({ status: 200, body: { data: { sessions: [] } } }),
+    }, '#c=%E0');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tickets).toEqual([]);
+    expect(els.titulek.textContent).toBe('Hodina Dopravy teď neběží.');
+  });
+
   it('teacher: single-player plus mayor / spectator buttons from /sessions of UUID schools', async () => {
     const { els, calls, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'], [`schools:${S1}`]: 'TEACHER', 'schools:12345678': 'TEACHER' }), {
       [`GET /sessions?schoolId=${S1}`]: () => ({ status: 200, body: { data: { sessions: [

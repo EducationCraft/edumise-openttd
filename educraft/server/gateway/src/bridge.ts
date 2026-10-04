@@ -214,13 +214,20 @@ export class Bridge {
     for (const s of list) this.slots.set(s.slot, { company: s.company ?? null, studentIds: s.studentIds ?? [] });
   }
 
-  private async refreshSlots(): Promise<void> {
+  /** Returns false when the map could not be refreshed (the old one stays). */
+  private async refreshSlots(): Promise<boolean> {
     try {
       const r = await this.wcall('GET', '/slots');
-      if (r.status === 200) this.setSlots(r.body?.data?.slots);
+      const list = r.body?.data?.slots;
+      if (r.status === 200 && list) {
+        this.setSlots(list);
+        return true;
+      }
+      this.log('warn', 'GET /slots failed', { status: r.status });
     } catch (e) {
       this.log('warn', 'GET /slots failed', { err: String(e) });
     }
+    return false;
   }
 
   private slotOf(studentId: string | null): number | undefined {
@@ -382,10 +389,8 @@ export class Bridge {
       const r = await this.wcall('GET', `/ops?after=${this.cursor}&limit=${WINDOW}`);
       if (r.status !== 200) return;
       const rev = r.body.data.slotsRev;
-      if (typeof rev === 'number' && rev !== this.slotsRev) {
-        this.slotsRev = rev;
-        await this.onTeamsChanged();
-      }
+      // The rev counts as seen only after a successful refresh, so a failed GET /slots retries.
+      if (typeof rev === 'number' && rev !== this.slotsRev && (await this.onTeamsChanged())) this.slotsRev = rev;
       for (const op of (r.body.data.ops ?? []) as WalletOp[]) {
         if (!this.canSend()) break;
         if (op.seq <= this.cursor || this.inflight.has(op.seq)) continue; // acked while this poll ran
@@ -864,17 +869,26 @@ export class Bridge {
    * §6.3 team change: a pupil whose admitted company (or `new` slot) is no longer their
    * team's goes back to spectator and must reconnect; the next admission uses the new map.
    */
-  private async onTeamsChanged(): Promise<void> {
-    await this.refreshSlots();
+  private async onTeamsChanged(): Promise<boolean> {
+    if (!(await this.refreshSlots())) return false;
     for (const [id, c] of this.clients) {
-      if (c.role !== 'pupil' || c.admit === null || c.admit === 'spectator' || c.admit === 'founding') continue;
+      if (c.role !== 'pupil' || c.admit === null || c.admit === 'founding') continue;
       const slot = this.slotOf(c.studentId);
+      if (c.admit === 'spectator') {
+        // Had no team (MSG.noTeam) and now has one: tell them to reconnect, once.
+        if (c.slot === undefined && slot !== undefined) {
+          c.slot = slot;
+          await this.say(id, MSG.teamChanged);
+        }
+        continue;
+      }
       const ok = c.admit === 'new' ? slot === c.slot : slot !== undefined && this.slots.get(slot)!.company === c.admit;
       if (ok) continue;
       c.admit = 'spectator';
       await this.rcon(`edu_admit ${id} spectator`).catch(() => undefined);
       await this.say(id, MSG.teamChanged);
     }
+    return true;
   }
 
   /** §6.3 step 3: a pupil admitted as `new` founded company `company`. */
