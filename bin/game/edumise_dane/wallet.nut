@@ -681,7 +681,9 @@ function EduMiseDane::SendTowns()
 /**
  * Only with setting `ladeni` = 1 (the local test harness, never the server config):
  * {"t":"debug","c":3,"p":-500,"reinit":true} changes cash and optionally re-arms loan-init,
- * {"t":"debug","what":"dump"} reports the unsent state, {"t":"debug","pokl":0} sets the treasury.
+ * {"t":"debug","what":"dump"} reports the unsent state, {"t":"debug","pokl":0} sets the treasury,
+ * {"t":"debug","c":3,"tax":700} books a tax (negative = refund) like a quarterly/yearly settlement,
+ * {"t":"debug","what":"legacy"} drops pokladna/rozpocet so the next save looks like an old one.
  */
 function EduMiseDane::OnDebug(m)
 {
@@ -691,6 +693,18 @@ function EduMiseDane::OnDebug(m)
 		foreach (c, _ in this.w.loanPending) pending.append(c);
 		this.Send({ t = "debug", inited = inited, pending = pending, held = this.held, run = this.w.run,
 			pokl = this.w.pokladna, sazba = this.sazba, citadela = this.w.citadela });
+		return;
+	}
+	if (this.F(m, "what") == "legacy") {
+		delete this.w.pokladna;
+		delete this.w.rozpocet;
+		this.Send({ t = "debug", ok = true });
+		return;
+	}
+	if (typeof this.F(m, "tax") == "integer") {
+		local ok = this.Exists(this.F(m, "c")) && !GSGame.IsPaused();
+		if (ok) this.Uctuj(m.c, m.tax, "Test daně");
+		this.Send({ t = "debug", ok = ok });
 		return;
 	}
 	if (typeof this.F(m, "pokl") == "integer") {

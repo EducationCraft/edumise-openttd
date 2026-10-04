@@ -497,6 +497,15 @@ class Harness:
         p = a.ask({"t": "ping"}, "pong")
         c("GameScript still alive at the end", p["last"] == self.seq, p)
 
+        # An old save (wallet without pokladna/rozpocet) gets the start treasury at load.
+        a.ask({"t": "hold"}, "held")
+        a.ask({"t": "debug", "what": "legacy"}, "debug")
+        a.rcon("save legacy")
+        srv.stop()
+        a = srv.start("-g", str(next(srv.work.rglob("legacy.sav"))))
+        dump = a.ask({"t": "debug", "what": "dump"}, "debug")
+        c("old save without a treasury loads with pokl 20,000", dump["pokl"] == 20000, dump)
+
         log = srv.log()
         c("no script errors or oversized admin messages",
           "GSAdmin.Send failed" not in log and "Your script made an error" not in log,
@@ -540,6 +549,21 @@ class Harness:
         c("grant from an empty treasury -> treasury_empty", not ack["ok"] and ack["r"] == "treasury_empty", ack)
         ack = self.op(a, "expand", v=town, p=1)
         c("expand from an empty treasury -> treasury_empty", not ack["ok"] and ack["r"] == "treasury_empty", ack)
+        a.ask({"t": "debug", "pokl": 20000}, "debug")
+
+        # Tax (D23): only what was paid out of positive cash reaches the treasury; a refund comes out of it.
+        a.ask({"t": "debug", "c": c1, "p": 300}, "debug")  # c1: 0 -> 300 after the clipped fine
+        r = a.ask({"t": "debug", "c": c1, "tax": 1000}, "debug")
+        dump = a.ask({"t": "debug", "what": "dump"}, "debug")
+        f = a.fin()[c1]
+        c("tax over positive cash: treasury gets only the cash part",
+          r["ok"] and dump["pokl"] == 20300 and f["cash"] == -700, (r, dump, f))
+        r = a.ask({"t": "debug", "c": c1, "tax": -400}, "debug")
+        dump = a.ask({"t": "debug", "what": "dump"}, "debug")
+        f = a.fin()[c1]
+        c("tax refund comes out of the treasury in full",
+          r["ok"] and dump["pokl"] == 19900 and f["cash"] == -300, (r, dump, f))
+        a.ask({"t": "debug", "c": c1, "p": 300}, "debug")
         a.ask({"t": "debug", "pokl": 20000}, "debug")
 
         ack = self.op(a, "tax", v=30)
