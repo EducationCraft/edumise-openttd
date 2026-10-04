@@ -37,6 +37,15 @@
 			flags = GSInfo.CONFIG_BOOLEAN
 		});
 		AddSetting({
+			name = "kapital",
+			description = "Startovní kapitál nové firmy v Kč (dar, ne úvěr; jen pro server)",
+			min_value = 0,
+			max_value = 10000000,
+			default_value = 1000000,
+			step_size = 100000,
+			flags = 0
+		});
+		AddSetting({
 			name = "ladeni",
 			description = "Ladění: testovací zprávy z admin portu (jen pro lokální testy)",
 			min_value = 0,

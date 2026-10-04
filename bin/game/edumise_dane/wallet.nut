@@ -148,6 +148,8 @@ function EduMiseDane::PenezenkaStart()
 	/* Older saves get the treasury filled in (D23). */
 	if (!("pokladna" in this.w)) this.w.pokladna <- EDU_START_POKLADNA;
 	if (!("rozpocet" in this.w)) this.w.rozpocet <- { dane = 0, dotace = 0, pokuty = 0, stavby = 0 };
+	/* Companies that got the start capital; older saves give it to every existing company once. */
+	if (!("kapital" in this.w)) this.w.kapital <- {};
 	this.needMonth = {};
 	this.loanFailSent = {};
 
@@ -161,6 +163,9 @@ function EduMiseDane::PenezenkaStart()
 	}
 	foreach (c, _ in clone this.w.loanPending) {
 		if (!this.Exists(c)) delete this.w.loanPending[c];
+	}
+	foreach (c, _ in clone this.w.kapital) {
+		if (!this.Exists(c)) delete this.w.kapital[c];
 	}
 	foreach (c in this.Companies()) {
 		if (!(c in this.w.inited) && this.Money(c).loan != 0) this.w.loanPending[c] <- true;
@@ -202,6 +207,7 @@ function EduMiseDane::PenezenkaLoop()
 function EduMiseDane::Running()
 {
 	this.LoanInit();
+	this.Kapital();
 
 	local month = this.MonthIndex();
 	if (month != this.lastMonth) {
@@ -265,6 +271,7 @@ function EduMiseDane::ForgetCompany(c)
 	if (c in this.w.bind) delete this.w.bind[c];
 	if (c in this.w.inited) delete this.w.inited[c];
 	if (c in this.w.loanPending) delete this.w.loanPending[c];
+	if (c in this.w.kapital) delete this.w.kapital[c];
 	if (c in this.needMonth) delete this.needMonth[c];
 	if (c in this.loanFailSent) delete this.loanFailSent[c];
 }
@@ -498,6 +505,21 @@ function EduMiseDane::LoanInit()
 			this.loanFailSent[c] <- true;
 			this.Send({ t = "loaninit", c = c, ok = false, cash = f.cash, loan = f.loan });
 		}
+	}
+}
+
+/**
+ * Start capital (setting `kapital`, Kč, game money is pounds): a one-off gift to each company once its loan-init
+ * is done, so a team can build its first line before any deposit. Not an op, not in the wallet.
+ * ponytail: marked before the gift, so a save landing mid-command loses it rather than paying twice.
+ */
+function EduMiseDane::Kapital()
+{
+	local p = GSController.GetSetting("kapital") / EDU_CZK;
+	foreach (c, _ in clone this.w.inited) {
+		if (c in this.w.kapital) continue;
+		this.w.kapital[c] <- true;
+		if (p > 0 && this.Exists(c)) this.Give(c, p);
 	}
 }
 

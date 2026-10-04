@@ -224,7 +224,7 @@ class Server:
         cfg = cfg.replace("server_port = 3979", f"server_port = {self.port}")
         cfg = cfg.replace("server_admin_port = 3977", f"server_admin_port = {self.admin_port}")
         cfg = cfg.replace("allow_insecure_admin_login = false", "allow_insecure_admin_login = true")
-        cfg = cfg.replace("ladeni=0", "ladeni=1")
+        cfg = cfg.replace("ladeni=0", "ladeni=1,kapital=0")  # 0/0 checks below assume no start capital
         (work / "openttd.cfg").write_text(cfg, encoding="utf-8")
         (work / "private.cfg").write_text("[server_bind_addresses]\n127.0.0.1\n", encoding="utf-8")
         (work / "secrets.cfg").write_text(f"[network]\nadmin_password = {self.password}\n", encoding="utf-8")

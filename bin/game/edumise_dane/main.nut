@@ -34,7 +34,7 @@ class EduMiseDane extends GSController
 	/**
 	 * Penezenka (setting `penezenka` = 1), see wallet.nut. Saved in the savegame:
 	 * { game, last, ring, bind, inited, loanPending, run, sid, stopAt, months,
-	 *   pokladna, rozpocet, citadela }.
+	 *   pokladna, rozpocet, citadela, kapital }.
 	 */
 	w = null;
 	/* Not saved: a restart always goes through the bridge again. */
