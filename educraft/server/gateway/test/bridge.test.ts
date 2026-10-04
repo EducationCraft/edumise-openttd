@@ -333,7 +333,7 @@ describe('saves (§4.5 steps 8, 9, 12)', () => {
     expect(gs.sent.at(-1)).toEqual({ t: 'hello', v: 1 });
     await run(60 * 60_000);
     expect(gs.of('session')).toHaveLength(runs);
-    expect(w.of('POST', '/session').map((c) => c.body)).toEqual([{ action: 'limit' }]);
+    expect(w.of('POST', '/session').map((c) => c.body)).toEqual([{ action: 'limit', resumeSeq: 0 }]);
     expect(gs.rcons.filter((c) => c === 'save current')).toHaveLength(1);
     expect(w.of('GET', '/ops').length).toBeGreaterThan(1000); // still polling for a resume
   });

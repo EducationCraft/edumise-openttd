@@ -629,7 +629,7 @@ export class Bridge {
         this.limited = true;
         this.sendBlocked = true;
         this.bg(this.save({ resume: false }), 'save');
-        this.bg(this.postSession({ action: 'limit' }), 'limit report');
+        this.bg(this.postSession({ action: 'limit', resumeSeq: this.resumeSeq }), 'limit report'); // a stale retry after a resume is ignored
         return;
       default:
         this.log('warn', 'unknown GS message', { t: m.t });
@@ -807,7 +807,7 @@ export class Bridge {
     return false;
   }
 
-  private async postSession(body: { action: 'limit' } | { action: 'stop'; reason: 'gs_dead' }): Promise<void> {
+  private async postSession(body: { action: 'limit'; resumeSeq: number } | { action: 'stop'; reason: 'gs_dead' }): Promise<void> {
     for (let i = 0; i < 5; i++) {
       try {
         const r = await this.wcall('POST', '/session', body);

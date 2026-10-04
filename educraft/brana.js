@@ -333,8 +333,9 @@
     return Math.floor(s / 3600) + ':' + dve(Math.floor(s / 60) % 60) + ':' + dve(s % 60);
   }
 
-  function odpocet(nazev, stopDeadline) {
-    var konec = Date.parse(stopDeadline);
+  // serverNow = hodiny walletu; skolni PC muze mit hodiny posunute, pocitame zbytek od odpovedi.
+  function odpocet(nazev, stopDeadline, serverNow) {
+    var konec = Date.now() + Date.parse(stopDeadline) - (Date.parse(serverNow) || Date.now());
     var p = popisek('');
     var tik = function () {
       var zbyva = konec - Date.now();
@@ -406,7 +407,7 @@
         tridyEl.appendChild(tlacitko(role + h.className, function () { tridniListek(schoolId, t.classId, null); }));
         if (jeSuperadmin) tridyEl.appendChild(tlacitko('Hrát za žáka – ' + h.className, function () { vyberZaka(h); }));
         if (t.canManage) {
-          if (t.stopDeadline) tridyEl.appendChild(odpocet(h.className, t.stopDeadline));
+          if (t.stopDeadline) tridyEl.appendChild(odpocet(h.className, t.stopDeadline, r.data.serverNow));
           tridyEl.appendChild(tlacitko('Prodloužit na 2 hodiny – ' + h.className, function () {
             akceTridy(h, 'extend', { zakaz: 'Hru této třídy nemůžete prodloužit.', stav: 'Hra už neběží.', jine: 'Hru se nepodařilo prodloužit.' });
           }));

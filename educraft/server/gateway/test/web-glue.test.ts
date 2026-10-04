@@ -254,14 +254,15 @@ describe('brana.js', () => {
 
   it('manager sees a countdown to stopDeadline, extends to 2 hours, and resumes a class at the limit', async () => {
     const posts: any[] = [];
-    let deadline = new Date(Date.now() + 3_725_000).toISOString(); // 1:02:05
+    const skew = 600_000; // the wallet clock is 10 min ahead of this PC; the countdown follows the wallet
+    let deadline = new Date(Date.now() + skew + 3_725_000).toISOString(); // 1:02:05
     let answer: { status: number; body: any } = { status: 200, body: { data: {} } };
     const { els } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: 'ZŠ Demo' }] } } }),
       [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [
         cls({ classId: K1, className: '6.I', session: 'limit', canManage: true, canMayor: true, stopDeadline: deadline }),
         cls({ classId: K2, className: '7.C', session: 'running', stopDeadline: deadline }),
-      ] } } }),
+      ], serverNow: new Date(Date.now() + skew).toISOString() } } }),
       [`POST /classes/${K1}/session`]: (body) => { posts.push(body); return answer; },
     });
     await vi.advanceTimersByTimeAsync(0);
@@ -269,7 +270,7 @@ describe('brana.js', () => {
       'Prodloužit na 2 hodiny – 6.I', 'Pokračovat ve hře – 6.I', 'Ukončit hru – 6.I', 'Sledovat – 7.C']);
     await vi.advanceTimersByTimeAsync(6_000);
     expect(labels(els)[2]).toBe('6.I: Server se vypne za 1:01:59');
-    deadline = new Date(Date.now() + 7_200_000).toISOString();
+    deadline = new Date(Date.now() + skew + 7_200_000).toISOString();
     await click(els, 'Prodloužit na 2 hodiny – 6.I');
     expect(posts).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', action: 'extend' }]);
     expect(labels(els)[2]).toBe('6.I: Server se vypne za 2:00:00');
