@@ -320,6 +320,20 @@ public:
 	static Money GetQuarterlyExpenses(ScriptCompany::CompanyID company, SQInteger quarter);
 
 	/**
+	 * Get one line of the company's yearly finances, as the finances window shows it.
+	 * Unlike the quarterly functions this covers every expense type, one-time ones included.
+	 * @param company The company to get the value of.
+	 * @param year_ago 0 = the current economy year, 1 = the previous one, 2 = the one before.
+	 * @param expenses_type The line of the finances window.
+	 * @pre ResolveCompanyID(company) != COMPANY_INVALID.
+	 * @pre year_ago >= 0 && year_ago <= 2.
+	 * @return Income positive, costs negative; 0 when a precondition fails.
+	 * @note EduCraft addition, so a GameScript can tax exact calendar-year values.
+	 * @api -ai
+	 */
+	static Money GetAnnualExpenseValue(ScriptCompany::CompanyID company, SQInteger year_ago, ExpensesType expenses_type);
+
+	/**
 	 * Get the amount of cargo delivered by the given company in the given economy-quarter.
 	 * @param company The company to get the amount of delivered cargo of.
 	 * @param quarter The economy-quarter to get the amount of delivered cargo of.

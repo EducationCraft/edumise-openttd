@@ -134,6 +134,11 @@ private/secrets split and silently ignores `private.cfg`, where the entrypoint p
 the tax script the web single-player uses. `ladeni` enables test-only `debug` messages
 and must stay 0 on servers.
 
+Taxes follow Czech corporate income tax (header of `main.nut`, details in edumise-docs
+`docs/ekonomika.md`): the return for calendar year Y is settled on 1 April Y+1 from
+`GetAnnualExpenseValue(c, 1, …)`, with depreciation, loss carry-back/forward and advances
+from the last known tax.
+
 Loan-init tops a new company up to its current loan (`delta = loan − cash`) and repays it
 all. With the untouched initial loan (`INITIAL_LOAN` rounded down to a step, £75,000) that is `75000 − cash`; it also ends at 0/0 when a
 pupil repaid part of the loan before the script ran. The top-up is capped at £1,500 (61 500 Kč), which
@@ -151,6 +156,7 @@ spending and goes to a human as `loaninit ok:false` instead of being refunded.
 | `src/company_cmd.cpp` | A5: `Company::PostDestructor` drops company admissions to the removed company, whose id the next new company reuses. |
 | `src/console_cmds.cpp` | A5d: `edu_admit <client-id> <company-id\|new\|spectator>`, server only. |
 | `src/script/api/script_town.{hpp,cpp}`, `game_changelog.hpp` | A4: `GSTown.GetTownActionCost(action)`, the exact native cost formula. |
+| `src/script/api/script_company.{hpp,cpp}`, `game_changelog.hpp` | `GSCompany.GetAnnualExpenseValue(company, year_ago, type)`: one line of the finances window for the current or one of the two previous economy years, so the tax GameScript taxes exact calendar-year values. Runs in the web single-player too (same SHA). |
 | `src/table/settings/economy_settings.ini`, `src/settings_type.h`, `src/economy.cpp` | A7: `economy.edu_bankruptcy_hold` caps `months_of_bankruptcy` at 3, so an insolvent company is never offered for sale or removed. |
 | `src/tests/test_edu_wallet.cpp`, `src/tests/CMakeLists.txt` | Unit tests for the gate, admission and loan step. |
 | `src/settings.cpp` | Web build defaults to the tax GameScript (see above). |

@@ -28,6 +28,7 @@ from pathlib import Path
 from game_client import NEW_COMPANY, SPECTATOR, GameClient, JoinRefused, cstr, i64, newgrf_version, u8, u16, u32
 
 ROOT = Path(__file__).resolve().parents[2]
+NEW_VEHICLES, TRAIN_INC, LOAN_INT = 1, 7, 11  # GSCompany.EXPENSES_*
 GAME = "ctest00000001"
 
 # Admin packet types (src/network/core/tcp_admin.h).
@@ -465,6 +466,8 @@ class Harness:
         ack = self.op(a, "deposit", s=1, c=c0, p=10)
         c("ops resume after load", ack["ok"], ack)
 
+        self.tax_settlement(a, c2)
+
         # Watchdog: silence for > 2000 ticks pauses; run stays set; session run resumes.
         time.sleep(62)
         st = a.state()
@@ -476,7 +479,11 @@ class Harness:
         self.client_hooks(a, srv, c0, town)
 
         if slow:
+            year, since = int(a.state()["date"][:4]), a.mark()
+            self.book(a, c2, TRAIN_INC, 3000)
+            self.book(a, c2, LOAN_INT, -300)
             self.bankruptcy_hold(a, c1)
+            self.tax_after_new_year(a, c2, year, since)
 
         # Session limit: a new session of 1 month pauses itself at the month boundary.
         m = a.mark()
@@ -596,16 +603,7 @@ class Harness:
         a.ask({"t": "debug", "c": c1, "p": 300}, "debug")
         a.ask({"t": "debug", "pokl": 432000}, "debug")
 
-        # Tax advances: the threshold hranice_zaloh is in Kč (30,000), the tax in pounds (× 41).
-        cash0 = a.fin()[c1]["cash"]
-        r = a.ask({"t": "debug", "c": c1, "dan": 700}, "debug")  # 28,700 Kč <= 30,000 Kč
-        c("no tax advance under the 30,000 Kč threshold", r["ok"] and r["zalohy"] == 0 and a.fin()[c1]["cash"] == cash0, r)
-        r = a.ask({"t": "debug", "c": c1, "dan": 800}, "debug")  # 32,800 Kč > 30,000 Kč
-        c("tax advance over the threshold is a quarter of last year's tax",
-          r["ok"] and r["zalohy"] == 200 and a.fin()[c1]["cash"] == cash0 - 200, r)
-        r = a.ask({"t": "debug", "c": c1, "zuctovani": True}, "debug")  # no profit -> tax 0, advance refunded
-        c("yearly settlement without profit refunds the advances",
-          r["ok"] and r["dan"] == 0 and r["zalohy"] == 0 and a.fin()[c1]["cash"] == cash0, r)
+        self.tax_law(a)
         a.ask({"t": "debug", "pokl": 432000}, "debug")
 
         ack = self.op(a, "tax", v=30)
@@ -620,6 +618,72 @@ class Harness:
         c("expand charges only houses actually built",
           (ack["ok"] and 1 <= ack.get("p", 0) <= 3 and dump["pokl"] == 432000 - ack["p"] * 21500) or
           (not ack["ok"] and ack["r"] == "action_unavailable" and dump["pokl"] == 432000), (ack, dump))
+
+    def tax_law(self, a):
+        """The pure tax computation (main.nut Priznani, ZalohaKc) on explicit yearly inputs, in Kč."""
+        c = self.check
+        y = lambda rok, vynosy, naklady, vozidla=0, stavby=0: {
+            "rok": rok, "vynosy": vynosy, "naklady": naklady, "vozidla": vozidla, "stavby": stavby, "sazba": 21}
+        r = a.ask({"t": "debug", "what": "dan", "roky": [
+            y(2000, 1000000, 400000, 333333, 1000000),  # odpisy 36,667 (11 %, up) + 14,000 (1.4 %)
+            y(2001, 900000, 600000),                    # odpisy 74,167 (22.25 %, up) + 34,000 (3.4 %)
+            y(2002, 100000, 900000),                    # loss 908,167: back to 2000 and 2001, rest forward
+            y(2003, 500000, 100000),                    # profit 291,833 - 167,001 carried forward
+        ]}, "debug")
+        got = [(x["odpisy"], x["zisk"], x["odecteno"], x["zaklad"], x["dan"], x["zpet"], x["vratka"], x["ztrata"])
+               for x in r["roky"]]
+        c("tax: depreciation, base down to thousands, 21 % of it",
+          got[0] == (50667, 549333, 0, 549000, 115290, 0, 0, 0) and got[1] == (108167, 191833, 0, 191000, 40110, 0, 0, 0),
+          got)
+        c("tax: a loss goes back to the two previous years first and refunds their tax, the rest forward",
+          got[2] == (108167, -908167, 0, 0, 0, 741166, 155400, 167001), got)
+        c("tax: the carried-forward loss reduces the next profit", got[3] == (108167, 291833, 167001, 124000, 26040, 0, 0, 0)
+          and r["ztraty"] == [], (got, r["ztraty"]))
+
+        r = a.ask({"t": "debug", "what": "dan", "roky": [y(2010 + i, 400000, 0, 333333 if i == 0 else 0) for i in range(6)]},
+                  "debug")
+        c("tax: a vehicle is depreciated over 5 years to exactly its price, then stops",
+          [x["odpisy"] for x in r["roky"]] == [36667, 74167, 74167, 74167, 74165, 0], r["roky"])
+
+        for dan, want in ((29999, [0, 0, 0, 0]), (30000, [0, 0, 0, 0]), (30001, [0, 12100, 0, 12100]),
+                          (150000, [0, 60000, 0, 60000]), (150001, [37600, 37600, 37600, 37600])):
+            r = a.ask({"t": "debug", "what": "zalohy", "dan": dan}, "debug")
+            c(f"advances from a last known tax of {dan} Kč due 15 Mar/Jun/Sep/Dec: {want}", r["zalohy"] == want, r)
+
+    def book(self, a, company, expense, pounds):
+        r = a.ask({"t": "debug", "c": company, "p": pounds, "e": expense}, "debug")
+        self.check(f"book {pounds} pounds as expense type {expense}", r["ok"], r)
+
+    def tax_settlement(self, a, company):
+        """Real money on a fresh company (no vehicles, no loan, so nothing else is booked this year)."""
+        c = self.check
+        self.book(a, company, TRAIN_INC, 2000)    # 82,000 Kč revenue
+        self.book(a, company, LOAN_INT, -100)     # 4,100 Kč interest
+        self.book(a, company, NEW_VEHICLES, -200)  # 8,200 Kč vehicle, 902 Kč depreciation in its first year
+        cash = a.fin()[company]["cash"]
+        r = a.ask({"t": "debug", "c": company, "dan": 150001, "mesic": 6}, "debug")
+        cash2 = a.fin()[company]["cash"]
+        c("advance: 25 % of 150,001 Kč = 37,600 Kč, paid as 918 pounds (rounded up)",
+          r["ok"] and r["zalohy"] == 37600 and cash2 == cash - 918, (r, cash, cash2))
+        r = a.ask({"t": "debug", "c": company, "zuctovani": True, "zpet": 0}, "debug")
+        x, cash3 = r["r"], a.fin()[company]["cash"]
+        # The mayor set 30 % above: base 76,000 Kč -> tax 22,800 Kč; advance 37,600 -> refund 14,800 Kč = 360 pounds.
+        c("settlement reads the year's revenue, interest and vehicle purchase from the finances",
+          (x["vynosy"], x["naklady"], x["odpisy"], x["zisk"], x["zaklad"], x["sazba"], x["dan"]) ==
+          (82000, 4100, 902, 76998, 76000, 30, 22800), x)
+        c("settlement credits the advance and refunds the overpayment (rounded down)",
+          x["zalohy"] == 37600 and x["rozdil"] == -14800 and r["zalohy"] == 0 and r["dan"] == 22800
+          and cash3 == cash2 + 360, (r, cash2, cash3))
+
+    def tax_after_new_year(self, a, company, year, since):
+        """Across a new year: the 1 April settlement taxes exactly last calendar year's bookings."""
+        while a.state()["date"] < f"{year + 1}-04-02":
+            a.to_gs({"t": "ping"})
+            a.pump(2)
+        found = [m["r"] for m in a.gs[since:] if m["t"] == "dan" and m["c"] == company and m["r"]["rok"] == year]
+        # tax_settlement booked 2,000 / -100 and the slow run 3,000 / -300 pounds in `year`.
+        self.check(f"1 April {year + 1} settles {year} from that year's finances",
+                   len(found) == 1 and found[0]["vynosy"] == 5000 * 41 and found[0]["naklady"] == 400 * 41, found)
 
     def client_hooks(self, a, srv, other, town):
         """§5 tests 1, 2 and 5 through a real game socket: what a pupil's client sends."""

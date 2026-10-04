@@ -22,6 +22,7 @@
  * API additions:
  * \li GSRail.RemoveRailDepot
  * \li GSTown.GetTownActionCost (EduCraft fork)
+ * \li GSCompany.GetAnnualExpenseValue (EduCraft fork)
  *
  * Other changes:
  * \li GSTown::ExpandTown Change to town expansion to match expected behaviour with the 'allow_town_roads' setting
