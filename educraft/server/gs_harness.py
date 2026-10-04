@@ -479,11 +479,11 @@ class Harness:
         self.client_hooks(a, srv, c0, town)
 
         if slow:
-            year = int(a.state()["date"][:4])
+            year, since = int(a.state()["date"][:4]), a.mark()
             self.book(a, c2, TRAIN_INC, 3000)
             self.book(a, c2, LOAN_INT, -300)
             self.bankruptcy_hold(a, c1)
-            self.tax_after_new_year(a, c2, year)
+            self.tax_after_new_year(a, c2, year, since)
 
         # Session limit: a new session of 1 month pauses itself at the month boundary.
         m = a.mark()
@@ -657,12 +657,12 @@ class Harness:
           x["zalohy"] == 37600 and x["rozdil"] == -14800 and r["zalohy"] == 0 and r["dan"] == 22800
           and cash3 == cash2 + 360, (r, cash2, cash3))
 
-    def tax_after_new_year(self, a, company, year):
+    def tax_after_new_year(self, a, company, year, since):
         """Across a new year: the 1 April settlement taxes exactly last calendar year's bookings."""
         while a.state()["date"] < f"{year + 1}-04-02":
             a.to_gs({"t": "ping"})
             a.pump(2)
-        found = [m["r"] for m in a.gs if m["t"] == "dan" and m["c"] == company and m["r"]["rok"] == year]
+        found = [m["r"] for m in a.gs[since:] if m["t"] == "dan" and m["c"] == company and m["r"]["rok"] == year]
         # tax_settlement booked 2,000 / -100 and the slow run 3,000 / -300 pounds in `year`.
         self.check(f"1 April {year + 1} settles {year} from that year's finances",
                    len(found) == 1 and found[0]["vynosy"] == 5000 * 41 and found[0]["naklady"] == 400 * 41, found)
