@@ -716,7 +716,9 @@ function EduMiseDane::SendTowns()
  * {"t":"debug","c":3,"p":-500,"reinit":true} changes cash and optionally re-arms loan-init,
  * {"t":"debug","what":"dump"} reports the unsent state, {"t":"debug","pokl":0} sets the treasury,
  * {"t":"debug","c":3,"tax":700} books a tax (negative = refund) like a quarterly/yearly settlement,
- * {"t":"debug","what":"legacy"} drops pokladna/rozpocet so the next save looks like an old one.
+ * {"t":"debug","what":"legacy"} drops pokladna/rozpocet so the next save looks like an old one,
+ * {"t":"debug","c":3,"dan":800} sets last year's tax and runs a quarterly advance (Zaloha),
+ * {"t":"debug","c":3,"zuctovani":true} runs the yearly settlement (RocniZuctovani) now.
  */
 function EduMiseDane::OnDebug(m)
 {
@@ -738,6 +740,21 @@ function EduMiseDane::OnDebug(m)
 		local ok = this.Exists(this.F(m, "c")) && !GSGame.IsPaused();
 		if (ok) this.Uctuj(m.c, m.tax, "Test daně");
 		this.Send({ t = "debug", ok = ok });
+		return;
+	}
+	if (typeof this.F(m, "dan") == "integer" || this.F(m, "zuctovani") == true) {
+		local ok = this.Exists(this.F(m, "c")) && !GSGame.IsPaused();
+		if (ok) {
+			local z = this.Zaznam(m.c);
+			if ("dan" in m) {
+				z.dan = m.dan;
+				this.Zaloha(m.c);
+			} else {
+				this.RocniZuctovani(m.c, this.Rok());
+			}
+		}
+		local z = ok ? this.Zaznam(m.c) : null;
+		this.Send({ t = "debug", ok = ok, dan = ok ? z.dan : 0, zalohy = ok ? z.zalohy : 0 });
 		return;
 	}
 	if (typeof this.F(m, "pokl") == "integer") {

@@ -153,28 +153,28 @@ function EduMiseDane::RocniZuctovani(firma, rok)
 		dan = zaklad * this.sazba / 100;
 		if (odecet > 0) {
 			GSNews.Create(GSNews.NT_ECONOMY,
-				"Od zisku " + zisk + " jsme odečetli ztrátu z minulých let " + odecet
-					+ ". Základ daně: " + zaklad + ".",
+				"Od zisku " + this.Kc(zisk) + " Kč jsme odečetli ztrátu z minulých let " + this.Kc(odecet)
+					+ " Kč. Základ daně: " + this.Kc(zaklad) + " Kč.",
 				firma, GSNews.NR_NONE, 0);
 		}
 	} else if (zisk < 0) {
 		zaznam.ztraty.append({ rok = rok, castka = -zisk });
 		GSNews.Create(GSNews.NT_ECONOMY,
-			"Loni jsme byli ve ztrátě " + (-zisk) + ". Daň se neplatí a ztrátu si "
+			"Loni jsme byli ve ztrátě " + this.Kc(-zisk) + " Kč. Daň se neplatí a ztrátu si "
 				+ "odečteme od zisku v příštích pěti letech.",
 			firma, GSNews.NR_NONE, 0);
 	}
 
 	local rozdil = dan - zaznam.zalohy;
 	if (rozdil > 0) {
-		this.Uctuj(firma, rozdil, "Roční zúčtování daně: daň " + dan + ", zaplacené zálohy "
-			+ zaznam.zalohy + ", doplácíme " + rozdil + ".");
+		this.Uctuj(firma, rozdil, "Roční zúčtování daně: daň " + this.Kc(dan) + " Kč, zaplacené zálohy "
+			+ this.Kc(zaznam.zalohy) + " Kč, doplácíme " + this.Kc(rozdil) + " Kč.");
 	} else if (rozdil < 0) {
-		this.Uctuj(firma, rozdil, "Roční zúčtování daně: daň " + dan + ", zaplacené zálohy "
-			+ zaznam.zalohy + ", vrací se nám přeplatek " + (-rozdil) + ".");
+		this.Uctuj(firma, rozdil, "Roční zúčtování daně: daň " + this.Kc(dan) + " Kč, zaplacené zálohy "
+			+ this.Kc(zaznam.zalohy) + " Kč, vrací se nám přeplatek " + this.Kc(-rozdil) + " Kč.");
 	} else if (dan > 0) {
 		GSNews.Create(GSNews.NT_ECONOMY,
-			"Roční zúčtování daně: daň " + dan + " je přesně pokrytá zálohami.",
+			"Roční zúčtování daně: daň " + this.Kc(dan) + " Kč je přesně pokrytá zálohami.",
 			firma, GSNews.NR_NONE, 0);
 	}
 
@@ -189,14 +189,15 @@ function EduMiseDane::RocniZuctovani(firma, rok)
 function EduMiseDane::Zaloha(firma)
 {
 	local zaznam = this.Zaznam(firma);
-	if (zaznam.dan <= this.hraniceZaloh) return;
+	// hranice_zaloh je v Kč (jako v ČR), dan v interních librách.
+	if (zaznam.dan * EDU_CZK <= this.hraniceZaloh) return;
 
 	local zaloha = zaznam.dan / 4;
 	if (zaloha <= 0) return;
 
 	zaznam.zalohy += zaloha;
-	this.Uctuj(firma, zaloha, "Čtvrtletní záloha na daň: " + zaloha
-		+ " (čtvrtina loňské daně " + zaznam.dan + ").");
+	this.Uctuj(firma, zaloha, "Čtvrtletní záloha na daň: " + this.Kc(zaloha)
+		+ " Kč (čtvrtina loňské daně " + this.Kc(zaznam.dan) + " Kč).");
 }
 
 function EduMiseDane::ProKazdouFirmu(akce, rok)

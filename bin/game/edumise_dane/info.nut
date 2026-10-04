@@ -21,7 +21,7 @@
 		});
 		AddSetting({
 			name = "hranice_zaloh",
-			description = "Zálohy se platí, když loňská daň přesáhla tuto částku",
+			description = "Zálohy se platí, když loňská daň přesáhla tuto částku (Kč)",
 			min_value = 0,
 			max_value = 1000000,
 			default_value = 30000,

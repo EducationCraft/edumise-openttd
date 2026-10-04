@@ -578,6 +578,18 @@ class Harness:
         a.ask({"t": "debug", "c": c1, "p": 300}, "debug")
         a.ask({"t": "debug", "pokl": 432000}, "debug")
 
+        # Tax advances: the threshold hranice_zaloh is in Kč (30,000), the tax in pounds (× 41).
+        cash0 = a.fin()[c1]["cash"]
+        r = a.ask({"t": "debug", "c": c1, "dan": 700}, "debug")  # 28,700 Kč <= 30,000 Kč
+        c("no tax advance under the 30,000 Kč threshold", r["ok"] and r["zalohy"] == 0 and a.fin()[c1]["cash"] == cash0, r)
+        r = a.ask({"t": "debug", "c": c1, "dan": 800}, "debug")  # 32,800 Kč > 30,000 Kč
+        c("tax advance over the threshold is a quarter of last year's tax",
+          r["ok"] and r["zalohy"] == 200 and a.fin()[c1]["cash"] == cash0 - 200, r)
+        r = a.ask({"t": "debug", "c": c1, "zuctovani": True}, "debug")  # no profit -> tax 0, advance refunded
+        c("yearly settlement without profit refunds the advances",
+          r["ok"] and r["dan"] == 0 and r["zalohy"] == 0 and a.fin()[c1]["cash"] == cash0, r)
+        a.ask({"t": "debug", "pokl": 432000}, "debug")
+
         ack = self.op(a, "tax", v=30)
         dump = a.ask({"t": "debug", "what": "dump"}, "debug")
         c("tax without a company sets the rate", ack["ok"] and dump["sazba"] == 30, (ack, dump))
