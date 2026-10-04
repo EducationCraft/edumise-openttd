@@ -39,6 +39,13 @@ pred vetsi zmenou ji precti tam. Zavazna specifikace penez a protokolu: `educraf
 
 ## Zamery poslednich funkci
 
+- **Dane podle ceske legislativy** (`main.nut`, hlavicka) — priznani za kalendarni rok Y se zuctuje
+  k 1. 4. Y+1 z presnych rocnich udaju (`GSCompany.GetAnnualExpenseValue`, rozsireni forku; ne ze ctvrtleti —
+  okno ctvrtleti se posouvalo a dan nesedela). Zaklad = vynosy − provoz, udrzba, uroky, odpisy
+  (vozidla 5 let, stavby 30 let); `EXPENSES_OTHER` (dary, vklady, dane, pokuty) se nepocita. Zaklad na
+  tisice dolu, sazba 21 % (starosta 0–50 %, plati sazba k 31. 12.). Ztrata 2 roky zpet (vratka) + 5 let
+  dopredu, zalohy 40 % / 25 % podle posledni zname dane (30 000 / 150 000 Kc). Evidence v Kc v `stav`,
+  stare savy se prevedou lazy v `Zaznam()`. Test: harness `tax_law`, `tax_settlement`, `--slow` pres 1. 4.
 - **Startovni kapital** — dar (ne pujcka) `EDU_KAPITAL = 10 000 000 Kč` kazde firme po loan-init
   (`wallet.nut` `Kapital()`). `w.kapital[c]` = kolik uz dostala; zvyseni castky dorovna rozdil
   (`true` = stary 1 000 000 Kč). Neni to op ani zaznam ve walletu. GS setting `kapital=0` ho vypne

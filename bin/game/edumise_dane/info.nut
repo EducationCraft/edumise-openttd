@@ -2,10 +2,10 @@
 	function GetAuthor()      { return "EduCraft"; }
 	function GetName()        { return "EduMise — daně"; }
 	function GetShortName()   { return "EMDA"; }
-	function GetDescription() { return "Daň z příjmů podle českého modelu: 21 % ze zisku, roční zúčtování, čtvrtletní zálohy a odpočet ztráty z minulých let."; }
-	function GetVersion()     { return 4; }
+	function GetDescription() { return "Daň z příjmů právnických osob podle českého zákona: 21 % ze základu daně (výnosy − náklady − odpisy), přiznání za kalendářní rok k 1. 4., zálohy podle poslední známé daně, ztráta 2 roky zpět a 5 let dopředu."; }
+	function GetVersion()     { return 5; }
 	function GetAPIVersion()  { return "16"; }
-	function GetDate()        { return "2026-09-27"; }
+	function GetDate()        { return "2026-10-04"; }
 	function CreateInstance() { return "EduMiseDane"; }
 	function UseAsRandomAI()  { return false; }
 
@@ -21,7 +21,7 @@
 		});
 		AddSetting({
 			name = "hranice_zaloh",
-			description = "Zálohy se platí, když loňská daň přesáhla tuto částku (Kč)",
+			description = "Zálohy se platí, když poslední známá daň přesáhla tuto částku (Kč)",
 			min_value = 0,
 			max_value = 1000000,
 			default_value = 30000,

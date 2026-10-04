@@ -54,12 +54,18 @@ function EduMiseDane::DateStr()
 /** Pounds as game korunas with thousands separated: 150000 -> "6 150 000". */
 function EduMiseDane::Kc(pounds)
 {
-	local s = "" + abs(pounds * EDU_CZK), out = "";
+	return this.Cislo(pounds * EDU_CZK);
+}
+
+/** Thousands separated: 6150000 -> "6 150 000". */
+function EduMiseDane::Cislo(n)
+{
+	local s = "" + abs(n), out = "";
 	while (s.len() > 3) {
 		out = " " + s.slice(s.len() - 3) + out;
 		s = s.slice(0, s.len() - 3);
 	}
-	return (pounds < 0 ? "-" : "") + s + out;
+	return (n < 0 ? "-" : "") + s + out;
 }
 
 function EduMiseDane::Exists(c)
@@ -717,8 +723,8 @@ function EduMiseDane::SendTowns()
  * {"t":"debug","what":"dump"} reports the unsent state, {"t":"debug","pokl":0} sets the treasury,
  * {"t":"debug","c":3,"tax":700} books a tax (negative = refund) like a quarterly/yearly settlement,
  * {"t":"debug","what":"legacy"} drops pokladna/rozpocet so the next save looks like an old one,
- * {"t":"debug","c":3,"dan":800} sets last year's tax and runs a quarterly advance (Zaloha),
- * {"t":"debug","c":3,"zuctovani":true} runs the yearly settlement (RocniZuctovani) now.
+ * {"t":"debug","c":3,"p":1000,"e":7} books p with expense type e instead of EXPENSES_OTHER,
+ * tax computation, advances and settlement: DaneLadeni in main.nut.
  */
 function EduMiseDane::OnDebug(m)
 {
@@ -742,21 +748,7 @@ function EduMiseDane::OnDebug(m)
 		this.Send({ t = "debug", ok = ok });
 		return;
 	}
-	if (typeof this.F(m, "dan") == "integer" || this.F(m, "zuctovani") == true) {
-		local ok = this.Exists(this.F(m, "c")) && !GSGame.IsPaused();
-		if (ok) {
-			local z = this.Zaznam(m.c);
-			if ("dan" in m) {
-				z.dan = m.dan;
-				this.Zaloha(m.c);
-			} else {
-				this.RocniZuctovani(m.c, this.Rok());
-			}
-		}
-		local z = ok ? this.Zaznam(m.c) : null;
-		this.Send({ t = "debug", ok = ok, dan = ok ? z.dan : 0, zalohy = ok ? z.zalohy : 0 });
-		return;
-	}
+	if (this.DaneLadeni(m)) return;
 	if (typeof this.F(m, "pokl") == "integer") {
 		this.w.pokladna = m.pokl;
 		this.Send({ t = "debug", ok = true });
@@ -764,7 +756,10 @@ function EduMiseDane::OnDebug(m)
 	}
 	local c = this.F(m, "c"), p = this.F(m, "p");
 	local ok = this.Exists(c) && !GSGame.IsPaused();
-	if (ok && typeof p == "integer" && p != 0) ok = this.Give(c, p);
+	if (ok && typeof p == "integer" && p != 0) {
+		local e = this.F(m, "e");
+		ok = typeof e == "integer" ? GSCompany.ChangeBankBalance(c, p, e, GSMap.TILE_INVALID) : this.Give(c, p);
+	}
 	if (ok && this.F(m, "reinit") == true) {
 		if (c in this.w.inited) delete this.w.inited[c];
 		if (c in this.loanFailSent) delete this.loanFailSent[c];
