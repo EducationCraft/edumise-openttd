@@ -45,6 +45,25 @@ describe('pre.js', () => {
     expect(ctx.Module.websocket.url('doprava', 3979, 'tcp')).toBe(next);
   });
 
+  it('passes #n (or "Hráč") as EDU_CLIENT_NAME in preRun so the join never has an empty name', () => {
+    const run = (hash: string) => {
+      const pre: (() => void)[] = [];
+      const ctx: any = {
+        location: { hash, protocol: 'https:', origin: 'https://ottd.edumise.educraft.cz' },
+        window: { parent: {}, addEventListener() {} },
+        Module: { arguments: [], preRun: pre },
+        ENV: {},
+      };
+      vm.runInNewContext(readFileSync(join(ROOT, 'os/emscripten/pre.js'), 'utf8'), ctx);
+      pre.forEach((f) => { try { f(); } catch { /* FS stubs missing */ } });
+      return ctx.ENV.EDU_CLIENT_NAME;
+    };
+    expect(run('#w=' + encodeURIComponent(WSS) + '&n=' + encodeURIComponent('Tomáš N.'))).toBe('Tomáš N.');
+    expect(run('#w=' + encodeURIComponent(WSS))).toBe('Hráč');
+    expect(run('#w=' + encodeURIComponent(WSS) + '&n=%E0')).toBe('Hráč');
+    expect(run('')).toBeUndefined();
+  });
+
   it('ignores a #w pointing anywhere else', () => {
     const { ctx } = load('#w=' + encodeURIComponent('wss://evil.example/g/c3f0c9a1b2c4d?t=x'));
     expect(ctx.Module.arguments).not.toContain('-n');
@@ -107,10 +126,10 @@ describe('brana.js', () => {
     let n = 0;
     const { els, calls, tickets } = load(jwt({ 'custom:student_id': 's-1' }), {
       'GET /me/sessions': () => ({ status: 200, body: { data: { sessions: [{ classId: K1, className: '6.I', session: 'running', own: true }] } } }),
-      'POST /me/game-ticket': () => ({ status: 200, body: { data: { url: WSS.replace('abc', `t${n++}`), expiresAt: 'x' } } }),
+      'POST /me/game-ticket': () => ({ status: 200, body: { data: { url: WSS.replace('abc', `t${n++}`), expiresAt: 'x', playerName: n > 1 ? 'Jiný' : 'Tomáš N.' } } }),
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS.replace('abc', 't0')));
+    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS.replace('abc', 't0')) + '&n=' + encodeURIComponent('Tomáš N.'));
     expect(calls.find((c) => c.url.endsWith('/me/game-ticket'))!.init.headers.Authorization).toMatch(/^Bearer h\./);
     await vi.advanceTimersByTimeAsync(90_000);
     expect(els.hra.contentWindow.postMessage).toHaveBeenCalledWith({ t: 'edumise-ticket', url: WSS.replace('abc', 't1') }, 'https://ottd.edumise.educraft.cz');
@@ -130,7 +149,7 @@ describe('brana.js', () => {
     expect(labels(els)).toEqual(['Hrát – 6.I', 'Dívat se – 7.C']);
     await click(els, 'Dívat se – 7.C');
     expect(tickets).toEqual([{ classId: K2 }]);
-    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS));
+    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS) + '&n=' + encodeURIComponent('Hráč'));
   });
 
   it('pupil without a running session sees the Czech notice', async () => {
@@ -179,7 +198,7 @@ describe('brana.js', () => {
     expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Sledovat – 7.C', '8.B – hra neběží']);
     await click(els, 'Vstoupit jako starosta – 6.I');
     expect(tickets).toEqual([{ schoolId: S1 }]);
-    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS));
+    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS) + '&n=' + encodeURIComponent('Starosta'));
   });
 
   it('teacher without schools keeps single-player with a notice', async () => {
@@ -210,7 +229,7 @@ describe('brana.js', () => {
     state = 'running';
     await vi.advanceTimersByTimeAsync(5_000);
     expect(tickets).toEqual([{ schoolId: S1 }]);
-    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS));
+    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS) + '&n=' + encodeURIComponent('Starosta'));
   });
 
   it('a start that never reaches running times out after 4 minutes with a Czech error', async () => {
@@ -249,7 +268,7 @@ describe('brana.js', () => {
     expect(labels(els)).toEqual(['Tomáš N.']);
     await click(els, 'Tomáš N.');
     expect(tickets).toEqual([{ schoolId: S1, as: 'pupil', studentId: P1 }]);
-    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS));
+    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS) + '&n=' + encodeURIComponent('Hráč'));
   });
 
   it('teacher deep link #s&c[&as=pupil&sid] requests that ticket directly', async () => {

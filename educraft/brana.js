@@ -81,8 +81,9 @@
   }
 
   // Spolecna hra: ramecek se pripoji na listek z hashe, dalsi listky dostava zpravou.
-  function hrajSListkem(ziskejListek, prvni) {
-    spust('#w=' + encodeURIComponent(prvni.url));
+  // Jmeno hrace z listku (contract §3.2), jinak vychozi; prazdne jmeno hra odmitne.
+  function hrajSListkem(ziskejListek, prvni, jmeno) {
+    spust('#w=' + encodeURIComponent(prvni.url) + '&n=' + encodeURIComponent(prvni.playerName || jmeno));
     setInterval(async function () {
       try {
         var r = await ziskejListek();
@@ -118,7 +119,7 @@
   }
 
   // Spolecny vstup: listek → hra; chyby cesky.
-  async function vstup(ziskejListek) {
+  async function vstup(ziskejListek, jmeno) {
     var r;
     try {
       r = await ziskejListek();
@@ -126,7 +127,7 @@
       oznam('Chyba spojení', 'Nepodařilo se spojit se serverem.');
       return;
     }
-    if (r.status === 200) { hrajSListkem(ziskejListek, r.data); return; }
+    if (r.status === 200) { hrajSListkem(ziskejListek, r.data, jmeno); return; }
     if (r.error === 'no_session') { oznam('Hodina Dopravy teď neběží.', 'Počkej, až ji učitel spustí.'); return; }
     if (r.error === 'wallet_not_found') { oznam('Nejsi v pilotu Dopravy.', 'Požádej učitele o přiřazení do hry.'); return; }
     if (r.status === 403) { oznam('Do této třídy nemáte přístup.', 'Vyberte jinou třídu.'); return; }
@@ -135,7 +136,7 @@
   }
 
   function zakVeTride(classId) {
-    return vstup(function () { return penezenka('POST', '/me/game-ticket', { classId: classId }); });
+    return vstup(function () { return penezenka('POST', '/me/game-ticket', { classId: classId }); }, 'Hráč');
   }
 
   // D19: zak hraje jen ve sve tride, ostatni bezici tridy skoly sleduje.
@@ -173,7 +174,7 @@
     var telo = studentId ? { schoolId: schoolId, as: 'pupil', studentId: studentId } : { schoolId: schoolId };
     return vstup(function () {
       return penezenka('POST', '/classes/' + encodeURIComponent(classId) + '/game-ticket', telo);
-    });
+    }, studentId ? 'Hráč' : 'Starosta');
   }
 
   // Superadmin: konkretni zapsany zak tridy (D22); vstoupi presne jako on.

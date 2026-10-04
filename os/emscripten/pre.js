@@ -12,6 +12,13 @@ var eduWss = (function () {
 })();
 if (eduWss) {
     Module.arguments.push('-n', 'doprava:3979#255');
+    /* Player name from the gate (#n=); an empty client_name would refuse the join. Emscripten
+     * builds the getenv environment from ENV on first use, so preRun is early enough. */
+    var eduName = (function () {
+        var m = /[#&]n=([^&]*)/.exec(location.hash);
+        try { return m ? decodeURIComponent(m[1]).trim() : ''; } catch (e) { return ''; }
+    })() || 'Hráč';
+    Module.preRun.push(function () { ENV.EDU_CLIENT_NAME = eduName; });
     window.addEventListener('message', function (e) {
         if (e.origin !== location.origin || e.source !== window.parent) return;
         var d = e.data;
