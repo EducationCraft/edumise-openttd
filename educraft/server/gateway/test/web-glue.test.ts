@@ -78,7 +78,8 @@ describe('brana.js', () => {
     return {
       textContent: '', hidden: true, href: '', src: '', children: [] as any[],
       appendChild(c: any) { this.children.push(c); },
-      replaceChildren() { this.children = []; },
+      replaceChildren(...c: any[]) { this.children = c; },
+      remove() {},
       contentWindow: { postMessage: vi.fn() },
     };
   }
@@ -103,7 +104,7 @@ describe('brana.js', () => {
         return { ok: r.status === 200, status: r.status, json: async () => r.body };
       },
       atob: (s: string) => Buffer.from(s, 'base64').toString('binary'),
-      escape, setInterval, setTimeout, encodeURIComponent,
+      escape, setInterval, clearInterval, setTimeout, encodeURIComponent,
       crypto: { randomUUID: () => 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b' }, decodeURIComponent, JSON, Object, Date, Error,
     };
     vm.runInNewContext(readFileSync(join(ROOT, 'educraft/brana.js'), 'utf8'), ctx);

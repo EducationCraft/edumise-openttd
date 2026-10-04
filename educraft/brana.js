@@ -76,6 +76,7 @@
   }
 
   function spust(hash) {
+    zastavPrubeh();
     document.body.classList.add('hraje');
     hraEl.src = HRA + (hash || '');
   }
@@ -136,7 +137,14 @@
   }
 
   // Spolecny vstup: listek → hra; chyby cesky.
-  async function vstup(ziskejListek, jmeno) {
+  // Zak ceka na ucitele: kazdych 10 s znovu, pripoji se sam, jakmile hodina bezi.
+  function cekejNaHodinu(znovu) {
+    zastavPrubeh();
+    oznam('Hodina Dopravy teď neběží.', znovu ? 'Počkej, až ji učitel spustí – připojím tě sám.' : 'Počkej, až ji učitel spustí.');
+    if (znovu) setTimeout(znovu, 10 * 1000);
+  }
+
+  async function vstup(ziskejListek, jmeno, znovu) {
     var r;
     try {
       r = await ziskejListek();
@@ -145,12 +153,12 @@
       return;
     }
     if (r.status === 200) {
-      oznam('Připojuji…', 'Čekám, až server odpoví.');
+      if (!prubehEl) oznam('Připojuji…', 'Čekám, až server odpoví.');
       await serverOdpovida(r.data.url);
       hrajSListkem(ziskejListek, r.data, jmeno);
       return;
     }
-    if (r.error === 'no_session') { oznam('Hodina Dopravy teď neběží.', 'Počkej, až ji učitel spustí.'); return; }
+    if (r.error === 'no_session') { cekejNaHodinu(znovu); return; }
     if (r.error === 'wallet_not_found') { oznam('Nejsi v pilotu Dopravy.', 'Požádej učitele o přiřazení do hry.'); return; }
     if (r.status === 403) { oznam('Do této třídy nemáte přístup.', 'Vyberte jinou třídu.'); return; }
     if (r.status === 404) { oznam('Třída nebo žák nenalezen.', 'Hodina možná právě skončila.'); return; }
@@ -158,12 +166,13 @@
   }
 
   function zakVeTride(classId) {
-    return vstup(function () { return penezenka('POST', '/me/game-ticket', { classId: classId }); }, 'Hráč');
+    return vstup(function () { return penezenka('POST', '/me/game-ticket', { classId: classId }); }, 'Hráč',
+      function () { zakVeTride(classId); });
   }
 
   // D19: zak hraje jen ve sve tride, ostatni bezici tridy skoly sleduje.
-  async function zak() {
-    oznam('Moment…', 'Hledám hodiny Dopravy.');
+  async function zak(tiche) {
+    if (!tiche) oznam('Moment…', 'Hledám hodiny Dopravy.');
     var odkaz = odkazZHashe();
     if (odkaz.c) { zakVeTride(odkaz.c); return; }
     var r;
@@ -174,7 +183,7 @@
       return;
     }
     var hodiny = (r.status === 200 && r.data.sessions) || [];
-    if (!hodiny.length) { oznam('Hodina Dopravy teď neběží.', 'Počkej, až ji učitel spustí.'); return; }
+    if (!hodiny.length) { cekejNaHodinu(function () { zak(true); }); return; }
     if (hodiny.length === 1 && hodiny[0].own) { zakVeTride(hodiny[0].classId); return; }
     oznam('Doprava', 'Vyber hodinu.');
     vycisti();
@@ -220,12 +229,49 @@
     chybaEl.hidden = !text;
   }
 
+  // Odhad startu serveru tridy (zmereno 2026-10-04, 2.A + 6 startu z ECS udalosti): bezny start ze savu
+  // 45–60 s (task 19–37 s + ALB health), po resetu 160 s (archiv 22 s, restart tasku 80 s, nova mapa 30 s).
+  // Bezny start ~START_MS, po resetu se navic
+  // archivuje stary svet, task se restartuje (ALB draining 30 s + ECS) a generuje nova mapa ~RESET_MS.
+  // ponytail: pevne konstanty; az bude vic startu, pocitat median z walletu.
+  var START_MS = 55 * 1000;
+  var RESET_MS = 165 * 1000;
+  var prubehEl = null;
+
+  // Ukazatel podle casu: do odhadu linearne k 90 %, pak jen pomalu k 99 % (nikdy neskonci driv nez server).
+  function ukazPrubeh(odhadMs) {
+    zastavPrubeh();
+    var start = Date.now();
+    var box = document.createElement('div');
+    box.className = 'prubeh';
+    var bar = document.createElement('progress');
+    bar.max = 100;
+    var text = document.createElement('small');
+    box.appendChild(bar);
+    box.appendChild(text);
+    tridyEl.replaceChildren(box);
+    tridyEl.hidden = false;
+    var tik = function () {
+      var t = Date.now() - start;
+      bar.value = t < odhadMs ? 90 * t / odhadMs : 90 + 9 * (1 - Math.exp(-(t - odhadMs) / odhadMs));
+      text.textContent = Math.round(t / 1000) + ' s z obvyklých ~' + Math.round(odhadMs / 1000) + ' s';
+    };
+    tik();
+    prubehEl = { box: box, timer: setInterval(tik, 500) };
+  }
+
+  function zastavPrubeh() {
+    if (!prubehEl) return;
+    clearInterval(prubehEl.timer);
+    prubehEl.box.remove();
+    prubehEl = null;
+  }
+
   // Spusteni hry tridy (contract §3.3: POST …/session {action:"start"}), pak cekani na running.
   async function spustTridu(h) {
     chyba('');
-    oznam('Spouštím server třídy…', '(první spuštění vytváří mapu, může trvat pár minut)');
-    vycisti();
-    tridyEl.hidden = true;
+    oznam('Spouštím server třídy…', h.resetPending ? 'Vytváří se nový svět, chvíli to potrvá.' : 'Načítá se uložený svět.');
+    ukazPrubeh(h.resetPending ? RESET_MS : START_MS);
     var cesta = '/classes/' + encodeURIComponent(h.classId);
     try {
       var r = await penezenka('POST', cesta + '/session', { schoolId: h.schoolId, requestId: crypto.randomUUID(), action: 'start' });
@@ -245,6 +291,8 @@
         if (Date.now() > konec) throw { duvod: 'Server se nespustil do 4 minut. Zkuste to prosím znovu.' };
       }
     } catch (e) {
+      zastavPrubeh();
+      vycisti();
       oznam('Hru teď nejde spustit.', 'Zkuste to prosím za chvíli znovu.');
       chyba((e && e.duvod) || 'Nepodařilo se spojit se serverem.');
       tridyEl.hidden = false;
@@ -315,7 +363,7 @@
     var tridy = (r.data.classes || []).filter(function (t) { return t.gameKey; });
     if (!tridy.length) { tridyEl.appendChild(popisek('Žádná třída školy není zapsaná do Dopravy.')); return; }
     tridy.forEach(function (t) {
-      var h = { schoolId: schoolId, classId: t.classId, className: t.className || 'Třída', zpet: zpet, skola: nazev };
+      var h = { schoolId: schoolId, classId: t.classId, className: t.className || 'Třída', zpet: zpet, skola: nazev, resetPending: !!t.resetPending };
       if (BEZI.indexOf(t.session) !== -1) {
         var role = t.canMayor ? 'Vstoupit jako starosta – ' : 'Sledovat – ';
         tridyEl.appendChild(tlacitko(role + h.className, function () { tridniListek(schoolId, t.classId, null); }));
