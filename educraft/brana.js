@@ -230,6 +230,23 @@
     }
   }
 
+  // Konec hodiny (contract §3.3: POST …/session {action:"stop"}): server ulozi svet a vypne se.
+  function ukonciTridu(h) {
+    var zpet = function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); };
+    oznam('Ukončit hru – ' + h.className + '?', 'Svět se uloží a server se vypne. Připojení žáci budou odpojeni.');
+    vycisti();
+    tridyEl.appendChild(tlacitko('Ano, ukončit hru', async function () {
+      vycisti();
+      var r = await penezenka('POST', '/classes/' + encodeURIComponent(h.classId) + '/session',
+        { schoolId: h.schoolId, requestId: crypto.randomUUID(), action: 'stop' }).catch(function () { return { status: 0 }; });
+      // invalid_state = uz se ukoncuje nebo nebezi.
+      if (r.status === 200 || r.error === 'invalid_state') oznam('Hra se ukončuje.', 'Svět se ukládá, server se za chvíli vypne.');
+      else chyba(r.status === 403 ? 'Hru této třídy nemůžete ukončit.' : 'Hru se nepodařilo ukončit.');
+      tridyEl.appendChild(tlacitko('Zpět', zpet));
+    }));
+    tridyEl.appendChild(tlacitko('Zpět', zpet));
+  }
+
   function nazevSkoly(s) {
     return s.name || 'Škola ' + s.schoolId.slice(0, 8);
   }
@@ -250,6 +267,9 @@
         var role = t.canMayor ? 'Vstoupit jako starosta – ' : 'Sledovat – ';
         tridyEl.appendChild(tlacitko(role + h.className, function () { tridniListek(schoolId, t.classId, null); }));
         if (jeSuperadmin) tridyEl.appendChild(tlacitko('Hrát za žáka – ' + h.className, function () { vyberZaka(h); }));
+        if (t.canManage) tridyEl.appendChild(tlacitko('Ukončit hru – ' + h.className, function () { ukonciTridu(h); }));
+      } else if (t.session === 'starting' || t.session === 'stopping') {
+        tridyEl.appendChild(popisek(h.className + (t.session === 'starting' ? ' – hra se spouští' : ' – hra se ukončuje')));
       } else if (t.canManage) {
         tridyEl.appendChild(tlacitko('Spustit hru – ' + h.className, function () { spustTridu(h); }));
       } else {

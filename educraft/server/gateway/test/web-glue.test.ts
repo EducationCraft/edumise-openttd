@@ -232,6 +232,25 @@ describe('brana.js', () => {
     expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS) + '&n=' + encodeURIComponent('Starosta'));
   });
 
+  it('manager ends a running class after a confirmation; starting/stopping classes show their state', async () => {
+    const stops: any[] = [];
+    const { els } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: 'ZŠ Demo' }] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [
+        cls({ classId: K1, className: '6.I', session: 'running', canManage: true, canMayor: true }),
+        cls({ classId: K2, className: '7.C', session: 'stopping', canManage: true }),
+      ] } } }),
+      [`POST /classes/${K1}/session`]: (body) => { stops.push(body); return { status: 200, body: { data: { session: 'stopping' } } }; },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Ukončit hru – 6.I', '7.C – hra se ukončuje']);
+    await click(els, 'Ukončit hru – 6.I');
+    expect(stops).toEqual([]);
+    await click(els, 'Ano, ukončit hru');
+    expect(stops).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', action: 'stop' }]);
+    expect(els.titulek.textContent).toBe('Hra se ukončuje.');
+  });
+
   it('a start that never reaches running times out after 4 minutes with a Czech error', async () => {
     const { els, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN' }] } } }),
@@ -260,7 +279,7 @@ describe('brana.js', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
     await click(els, 'Demoškola');
-    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I']);
+    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I', 'Ukončit hru – 6.I']);
     await click(els, 'Zpět na školy');
     expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
     await click(els, 'Demoškola');
