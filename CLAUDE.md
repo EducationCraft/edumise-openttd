@@ -60,7 +60,7 @@ pred vetsi zmenou ji precti tam. Zavazna specifikace penez a protokolu: `educraf
 - **„Ukončit hru“** (spravce tridy) = `POST …/session {action:"stop"}`: server ulozi svet a vypne se;
   pristi spusteni pokracuje ze savu.
 - **Zivotnost serveru 2 h** — wallet `stopDeadline` (start a kazde „Prodloužit na 2 hodiny“ = ted + 2 h,
-  nesčítá se); vypnuti hlida wallet job `session-deadline`, ne server. Bridge po `limit` (18 mesicu)
+  nesčítá se), ale nikdy pres tvrdy strop `start + 4 h` (`hardStopAt`; pak `409 session_max_reached`, server se vypne i s hraci a trida se musi spustit znovu); vypnuti hlida wallet job `session-deadline`, ne server. Bridge po `limit` (18 mesicu)
   uz server NEzastavuje: hlasi `{action:"limit", resumeSeq}` (wallet stary resumeSeq ignoruje), polluje dal a 10 min / 1 min pred deadline pise
   varovani do chatu (`say`). „Pokračovat ve hře“ = wallet `resumeSeq` + 1 → bridge posle GS sid
   `<sessionId>.r<resumeSeq>` (jiny sid = nove okno 18 mesicu; restart serveru okno zachova).

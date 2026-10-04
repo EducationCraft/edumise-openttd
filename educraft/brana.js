@@ -319,7 +319,7 @@
     tridyEl.appendChild(tlacitko('Zpět', zpet));
   }
 
-  // Server tridy se sam vypne v stopDeadline (2 h od spusteni nebo posledniho prodlouzeni, wallet job).
+  // Server tridy se sam vypne v stopDeadline (2 h od spusteni nebo posledniho prodlouzeni, nejdele 4 h od spusteni; wallet job).
   var odpocty = [];
 
   function zastavOdpocty() {
@@ -408,7 +408,9 @@
         if (jeSuperadmin) tridyEl.appendChild(tlacitko('Hrát za žáka – ' + h.className, function () { vyberZaka(h); }));
         if (t.canManage) {
           if (t.stopDeadline) tridyEl.appendChild(odpocet(h.className, t.stopDeadline, r.data.serverNow));
-          tridyEl.appendChild(tlacitko('Prodloužit na 2 hodiny – ' + h.className, function () {
+          // Tvrdy strop 4 h od spusteni: dal prodlouzit nejde, pak se trida musi spustit znovu rucne.
+          if (t.hardStopAt && t.stopDeadline === t.hardStopAt) tridyEl.appendChild(popisek(h.className + ': Server už nejde prodloužit (limit 4 hodiny). Pak ho spusťte znovu.'));
+          else tridyEl.appendChild(tlacitko('Prodloužit na 2 hodiny – ' + h.className, function () {
             akceTridy(h, 'extend', { zakaz: 'Hru této třídy nemůžete prodloužit.', stav: 'Hra už neběží.', jine: 'Hru se nepodařilo prodloužit.' });
           }));
           if (t.session === 'limit') tridyEl.appendChild(tlacitko('Pokračovat ve hře – ' + h.className, function () {
