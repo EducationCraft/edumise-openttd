@@ -19,7 +19,7 @@ pred vetsi zmenou ji precti tam. Zavazna specifikace penez a protokolu: `educraf
   `.git` worktree ukazuje mimo → build nezna revizi a vznikne klient, ktery se k serveru nepripoji.
 - **Upstream diff minimalni** a kazdy hunk zapsany v `educraft/README.md` sekce „Upstream diff“.
   Vse EduCraft-specificke patri do `educraft/` a `bin/game/edumise_dane/`.
-- **D1:** `LOAN_INTERVAL = 3481`, `max_loan = 13924` = 4 kroky = 200 💎 (3481 £ = 50 💎). Plati pro
+- **D1:** `LOAN_INTERVAL = 3481`, `max_loan = 13924` = 4 kroky = 200 💎 (krok 142 721 Kč = 50 💎). Plati pro
   vsechny buildy vc. single-playeru.
 - **Penize jen exactly-once pres wallet ops.** Jedna sekvence `seq` na hru (D4), GS aplikuje jen
   `lastSeq + 1` a drzi `lastSeq` + ring vysledku v savu. `seq` se NIKDY neresetuje — ani pri resetu
@@ -88,4 +88,5 @@ Binarky volat primo, NIKDY `npm run` / `npm test`.
 ## Komunikace
 
 - GitHub (issues, PR, commity) anglicky; UI texty cesky.
+- Castky v UI, dokumentaci i komunikaci uvadet v Kc (libry × 41), ne v librach; libry jen u internich konstant v kodu.
 - Commity bez zminky o Claude/AI a bez `Co-Authored-By`.
