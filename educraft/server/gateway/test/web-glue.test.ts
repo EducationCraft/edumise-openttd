@@ -159,9 +159,9 @@ describe('brana.js', () => {
     expect(els.titulek.textContent).toBe('Hodina Dopravy teď neběží.');
   });
 
-  it('teacher: single-player plus mayor / spectator buttons from /sessions of UUID schools', async () => {
-    const { els, calls, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'], [`schools:${S1}`]: 'TEACHER', 'schools:12345678': 'TEACHER' }), {
-      [`GET /sessions?schoolId=${S1}`]: () => ({ status: 200, body: { data: { sessions: [
+  it('teacher: single-player plus mayor / spectator buttons from /sessions (schools from identity, even when the claim is an IČO)', async () => {
+    const { els, calls, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'], 'schools:12345678': 'TEACHER' }), {
+      'GET /sessions': () => ({ status: 200, body: { data: { sessions: [
         { schoolId: S1, classId: K1, className: '6.I', session: 'running', role: 'mayor', canPlayAsPupil: false },
         { schoolId: S1, classId: K2, className: '7.C', session: 'running', role: 'spectator', canPlayAsPupil: false },
       ] } } }),

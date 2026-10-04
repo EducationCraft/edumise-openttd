@@ -195,22 +195,15 @@
     });
   }
 
-  async function ucitel(tokenClaims, superadmin) {
+  async function ucitel(superadmin) {
     var odkaz = odkazZHashe();
     if (odkaz.s && odkaz.c) { tridniListek(odkaz.s, odkaz.c, odkaz.sid); return; }
     oznam('Doprava', 'Hraj sám, nebo se připoj ke hře třídy.');
     vycisti();
     tridyEl.appendChild(tlacitko('Hrát samostatně', function () { spust(); }));
-    // ponytail: skolu bereme z claimu schools:<id>; dnes tam byva i ICO, ktere penezenka
-    // neprijme — takove skoly se preskoci. Az identity vrati UUID, zobrazi se samy.
-    var dotazy = superadmin ? ['/sessions'] : Object.keys(tokenClaims)
-      .filter(function (k) { return k.indexOf('schools:') === 0 && UUID.test(k.slice(8)); })
-      .map(function (k) { return '/sessions?schoolId=' + encodeURIComponent(k.slice(8)); });
-    var hodiny = [];
-    for (var i = 0; i < dotazy.length; i++) {
-      var r = await penezenka('GET', dotazy[i]).catch(function () { return { status: 0 }; });
-      if (r.status === 200) hodiny = hodiny.concat(r.data.sessions || []);
-    }
+    // Skoly zna penezenka z identity (claim schools:<id> casto nese ICO, ne UUID skoly).
+    var r = await penezenka('GET', '/sessions').catch(function () { return { status: 0 }; });
+    var hodiny = r.status === 200 ? (r.data.sessions || []) : [];
     if (!hodiny.length) { tridyEl.appendChild(popisek('Žádná třída teď Dopravu nehraje.')); return; }
     var skoly = {};
     hodiny.forEach(function (h) { (skoly[h.schoolId] = skoly[h.schoolId] || []).push(h); });
@@ -238,7 +231,7 @@
     if (c['custom:student_id']) { zak(); return; }
     // Skupiny bez ohledu na velikost pismen, stejne jako penezenka (contract §1.2).
     var skupiny = (c['cognito:groups'] || []).map(function (g) { return String(g).toLowerCase(); });
-    if (skupiny.some(function (g) { return UCITELSKE_SKUPINY.indexOf(g) !== -1; })) { ucitel(c, skupiny.indexOf('superadmin') !== -1); return; }
+    if (skupiny.some(function (g) { return UCITELSKE_SKUPINY.indexOf(g) !== -1; })) { ucitel(skupiny.indexOf('superadmin') !== -1); return; }
     odmitni('Tento účet nemá do hry přístup.');
     odkazEl.textContent = 'Přihlásit se jiným účtem';
   })();
