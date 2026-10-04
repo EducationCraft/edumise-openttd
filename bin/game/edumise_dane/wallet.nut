@@ -15,6 +15,7 @@
 const EDU_RING = 64;
 const EDU_WATCHDOG_TICKS = 2000;   // ~54 s without any bridge message
 const EDU_CZK = 41;                // OpenTTD CZK display multiplier
+const EDU_KAPITAL = 10000000;      // start capital per company, Kč (gift)
 const EDU_MIN_BUFFER = 1000;       // rescue buffer floor, pounds
 /* Largest loan-init top-up, pounds: one month of interest on £13,924 at 4 % (£47) plus the
  * monthly fee (Price::StationValue >> 2, £25), with headroom. */
@@ -514,17 +515,22 @@ function EduMiseDane::LoanInit()
 }
 
 /**
- * Start capital (setting `kapital`, Kč, game money is pounds): a one-off gift to each company once its loan-init
- * is done, so a team can build its first line before any deposit. Not an op, not in the wallet.
+ * Start capital: a gift (not a loan) of EDU_KAPITAL Kč to each company once its loan-init is done,
+ * so a team can build its first lines before any deposit. Not an op, not in the wallet.
+ * w.kapital[c] = pounds already given (true = the first release's 1,000,000 Kč); a raised amount
+ * tops up the difference. Setting `kapital` = 0 turns it off (the harness needs 0/0 companies).
  * ponytail: marked before the gift, so a save landing mid-command loses it rather than paying twice.
  */
 function EduMiseDane::Kapital()
 {
-	local p = GSController.GetSetting("kapital") / EDU_CZK;
+	if (GSController.GetSetting("kapital") == 0) return;
+	local cil = EDU_KAPITAL / EDU_CZK;
 	foreach (c, _ in clone this.w.inited) {
-		if (c in this.w.kapital) continue;
-		this.w.kapital[c] <- true;
-		if (p > 0 && this.Exists(c)) this.Give(c, p);
+		local dano = c in this.w.kapital ? this.w.kapital[c] : 0;
+		if (typeof dano == "bool") dano = 1000000 / EDU_CZK;
+		if (dano >= cil) continue;
+		this.w.kapital[c] <- cil;
+		if (this.Exists(c)) this.Give(c, cil - dano);
 	}
 }
 

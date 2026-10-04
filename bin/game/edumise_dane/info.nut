@@ -38,11 +38,10 @@
 		});
 		AddSetting({
 			name = "kapital",
-			description = "Startovní kapitál nové firmy v Kč (dar, ne úvěr; jen pro server)",
+			description = "Startovní kapitál nové firmy (dar 10 000 000 Kč; jen pro server)",
 			min_value = 0,
 			max_value = 10000000,
-			default_value = 1000000,
-			step_size = 100000,
+			default_value = 1,
 			flags = 0
 		});
 		AddSetting({
