@@ -244,12 +244,46 @@ describe('brana.js', () => {
       [`POST /classes/${K1}/session`]: (body) => { stops.push(body); return { status: 200, body: { data: { session: 'stopping' } } }; },
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Ukončit hru – 6.I', '7.C – hra se ukončuje']);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I', '7.C – hra se ukončuje']);
     await click(els, 'Ukončit hru – 6.I');
     expect(stops).toEqual([]);
     await click(els, 'Ano, ukončit hru');
     expect(stops).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', action: 'stop' }]);
     expect(els.titulek.textContent).toBe('Hra se ukončuje.');
+  });
+
+  it('manager sees a countdown to stopDeadline, extends to 2 hours, and resumes a class at the limit', async () => {
+    const posts: any[] = [];
+    let deadline = new Date(Date.now() + 3_725_000).toISOString(); // 1:02:05
+    let answer: { status: number; body: any } = { status: 200, body: { data: {} } };
+    const { els } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: 'ZŠ Demo' }] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [
+        cls({ classId: K1, className: '6.I', session: 'limit', canManage: true, canMayor: true, stopDeadline: deadline }),
+        cls({ classId: K2, className: '7.C', session: 'running', stopDeadline: deadline }),
+      ] } } }),
+      [`POST /classes/${K1}/session`]: (body) => { posts.push(body); return answer; },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', '6.I: Server se vypne za 1:02:05',
+      'Prodloužit na 2 hodiny – 6.I', 'Pokračovat ve hře – 6.I', 'Ukončit hru – 6.I', 'Sledovat – 7.C']);
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(labels(els)[2]).toBe('6.I: Server se vypne za 1:01:59');
+    deadline = new Date(Date.now() + 7_200_000).toISOString();
+    await click(els, 'Prodloužit na 2 hodiny – 6.I');
+    expect(posts).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', action: 'extend' }]);
+    expect(labels(els)[2]).toBe('6.I: Server se vypne za 2:00:00');
+    await click(els, 'Pokračovat ve hře – 6.I');
+    expect(posts[1].action).toBe('resume');
+    expect(els.chyba.hidden).toBe(true);
+    answer = { status: 409, body: { error: 'invalid_state' } };
+    await click(els, 'Pokračovat ve hře – 6.I');
+    expect(els.chyba.textContent).toBe('Hra už nečeká na pokračování.');
+    answer = { status: 403, body: { error: 'forbidden' } };
+    await click(els, 'Prodloužit na 2 hodiny – 6.I');
+    expect(els.chyba.textContent).toBe('Hru této třídy nemůžete prodloužit.');
+    await vi.advanceTimersByTimeAsync(2 * 3_600_000);
+    expect(labels(els)[2]).toBe('6.I: Server se vypíná.');
   });
 
   it('manager resets a stopped world after two steps and typing the class name; pending reset shows a label', async () => {
@@ -323,7 +357,7 @@ describe('brana.js', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
     await click(els, 'Demoškola');
-    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I', 'Ukončit hru – 6.I']);
+    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I']);
     await click(els, 'Zpět na školy');
     expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
     await click(els, 'Demoškola');

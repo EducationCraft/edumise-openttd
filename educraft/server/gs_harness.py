@@ -490,6 +490,24 @@ class Harness:
         c("session limit: GS pauses itself and sends limit",
           lim and lim[0]["months"] == 1 and st["paused"] and not st["run"], (lim, st))
 
+        # After the limit the same sid stays paused; a teacher resume (bridge sid "<sid>.r<n>") runs a new window.
+        m = a.mark()
+        a.to_gs({"t": "session", "run": True, "sid": "s2", "months": 1})
+        a.expect(m, lambda x: x["t"] == "limit", what="limit again for the same sid")
+        st = a.state()
+        c("same sid after the limit: stays paused", st["paused"] and not st["run"], st)
+        m = a.mark()
+        a.to_gs({"t": "session", "run": True, "sid": "s2.r1", "months": 1})
+        st = a.state()
+        c("resume sid after the limit: runs again", not st["paused"] and st["run"] and st["sid"] == "s2.r1", st)
+        deadline = time.time() + 90
+        while time.time() < deadline and not any(x["t"] == "limit" for x in a.gs[m:]):
+            a.to_gs({"t": "ping"})
+            a.pump(2)
+        st = a.state()
+        c("resumed window: GS pauses itself again after its months",
+          any(x["t"] == "limit" for x in a.gs[m:]) and st["paused"] and not st["run"], st)
+
         lines = a.rcon(f"edu_admit 9999 {c0 + 1}")
         c("edu_admit is a server console command and refuses unknown clients",
           any("Invalid client-id" in x for x in lines), lines)

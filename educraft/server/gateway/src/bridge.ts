@@ -29,8 +29,12 @@ export const T = {
   heldWait: 10_000,
   reportWait: 10_000,
   saveEvery: 5 * 60_000,
-  limitStop: 10 * 60_000,
 } as const;
+/** Chat warnings before the wallet's stopDeadline (the deadline job then stops the server). */
+const WARN = [
+  { ms: 60_000, text: 'Server se za 1 minutu uloží a vypne. Učitel může hru prodloužit.' },
+  { ms: 10 * 60_000, text: 'Server se za 10 minut uloží a vypne. Učitel může hru prodloužit.' },
+];
 export const WINDOW = 16;
 const MAX_COMPANIES = 15;
 const CLIENT_ID_SERVER = 1;
@@ -41,6 +45,7 @@ const MSG = {
   found: 'Založ si svou firmu: Seznam hráčů → Nová firma.',
   noTeam: 'Nejsi v žádném týmu – požádej učitele o zařazení.',
   teamChanged: 'Tvůj tým se změnil – připoj se znovu.',
+  resumed: 'Učitel pustil hru dál.',
 };
 
 interface WalletOp {
@@ -123,8 +128,11 @@ export class Bridge {
   private lastPingAt = 0;
   private lastPongAt = 0;
   private lastSaveAt = 0;
-  private limitAt: number | null = null;
-  private limitStopSent = false;
+  /** Teacher resumes seen (wallet `resumeSeq`); each one gives the GS a fresh month window. */
+  resumeSeq = 0;
+  /** Wallet stopDeadline (ms) and the shortest warning already said for it. */
+  stopDeadline: number | null = null;
+  private warnedMs = Infinity;
   private walletFailSince: number | null = null;
   private lastResumeAt = 0;
   private fin: FinBatch | null = null;
@@ -239,9 +247,11 @@ export class Bridge {
     return undefined;
   }
 
+  /** A new GS sid per teacher resume = a new window (GS sets stopAt when sid changes); a restart keeps it. */
   private sendSession(): void {
     this.lastResumeAt = Date.now();
-    this.gs({ t: 'session', run: true, sid: this.sid, months: this.months });
+    const sid = this.resumeSeq > 0 ? `${this.sid}.r${this.resumeSeq}` : this.sid;
+    this.gs({ t: 'session', run: true, sid, months: this.months });
     this.sendBlocked = false;
     this.resendUnsent();
   }
@@ -283,11 +293,12 @@ export class Bridge {
       const d = r.body.data;
       this.sid = d.sessionId;
       this.months = d.sessionMonths ?? 18;
+      this.resumeSeq = typeof d.resumeSeq === 'number' ? d.resumeSeq : 0;
+      this.setDeadline(d.stopDeadline);
       this.setSlots(d.slots);
       this.cursor = st.last;
       this.inflight.clear();
       this.limited = false;
-      this.limitAt = null;
 
       for (const c of d.unbind ?? []) {
         this.gs({ t: 'bind', c, s: null });
@@ -384,6 +395,7 @@ export class Bridge {
     }
     this.checkUnknown(now);
     void this.flushResults();
+    this.warnDeadline(now);
     if (now - this.lastPollAt >= T.poll) {
       this.lastPollAt = now;
       await this.poll();
@@ -391,10 +403,23 @@ export class Bridge {
     if (!this.saving && !this.limited && now - this.lastSaveAt >= T.saveEvery) {
       this.bg(this.save({ resume: true }), 'save');
     }
-    if (this.limitAt !== null && !this.limitStopSent && now - this.limitAt >= T.limitStop) {
-      this.limitStopSent = true;
-      await this.stopSession('limit');
-    }
+  }
+
+  private setDeadline(v: unknown): void {
+    const ms = typeof v === 'string' ? Date.parse(v) : NaN;
+    const next = Number.isFinite(ms) ? ms : null;
+    if (next !== this.stopDeadline) this.warnedMs = Infinity; // extended: warn again before the new one
+    this.stopDeadline = next;
+  }
+
+  /** Each warning once per deadline; only the shortest one due (a late boot skips the 10 min one). */
+  private warnDeadline(now: number): void {
+    if (this.stopDeadline === null) return;
+    const left = this.stopDeadline - now;
+    const due = WARN.find((x) => left > 0 && left <= x.ms && x.ms < this.warnedMs);
+    if (!due) return;
+    this.warnedMs = due.ms;
+    void this.rcon(`say "${due.text}"`).catch(() => undefined);
   }
 
   private canSend(): boolean {
@@ -419,12 +444,23 @@ export class Bridge {
     f.sentAt = Date.now();
   }
 
+  /** Polls also while the session is paused at the limit (teacher resume, deadline); ops wait for canSend. */
   async poll(): Promise<void> {
-    if (!this.canSend() || this.pollBusy) return;
+    if (this.phase !== 'running' || this.gsDead || this.stopping || this.pollBusy) return;
     this.pollBusy = true;
     try {
       const r = await this.wcall('GET', `/ops?after=${this.cursor}&limit=${WINDOW}`);
       if (r.status !== 200) return;
+      if ('stopDeadline' in r.body.data) this.setDeadline(r.body.data.stopDeadline);
+      const rs = r.body.data.resumeSeq;
+      // Not mid-save: a session run would end the save's hold; the next poll picks it up.
+      if (typeof rs === 'number' && rs > this.resumeSeq && !this.saving) {
+        this.resumeSeq = rs;
+        this.limited = false;
+        this.log('info', 'teacher resumed the game: new month window', { resumeSeq: rs });
+        this.sendSession();
+        void this.rcon(`say "${MSG.resumed}"`).catch(() => undefined);
+      }
       const rev = r.body.data.slotsRev;
       // The rev counts as seen only after a successful refresh, so a failed GET /slots retries.
       if (typeof rev === 'number' && rev !== this.slotsRev && (await this.onTeamsChanged())) this.slotsRev = rev;
@@ -589,10 +625,11 @@ export class Bridge {
         if (!m.ok) this.log('error', 'loan-init failed, needs a human', { company: m.c, cash: m.cash, loan: m.loan });
         return;
       case 'limit':
+        // Paused until the teacher resumes or the wallet's stopDeadline stops the server.
         this.limited = true;
         this.sendBlocked = true;
-        this.limitAt = Date.now();
         this.bg(this.save({ resume: false }), 'save');
+        this.bg(this.postSession({ action: 'limit' }), 'limit report');
         return;
       default:
         this.log('warn', 'unknown GS message', { t: m.t });
@@ -770,17 +807,17 @@ export class Bridge {
     return false;
   }
 
-  private async stopSession(reason: 'limit' | 'gs_dead' | 'wallet_unreachable'): Promise<void> {
+  private async postSession(body: { action: 'limit' } | { action: 'stop'; reason: 'gs_dead' }): Promise<void> {
     for (let i = 0; i < 5; i++) {
       try {
-        const r = await this.wcall('POST', '/session', { action: 'stop', reason });
+        const r = await this.wcall('POST', '/session', body);
         if (r.status < 500) return;
       } catch {
         /* retry */
       }
       await sleep(5_000);
     }
-    this.log('error', 'session stop not delivered', { reason });
+    this.log('error', 'session report not delivered', body);
   }
 
   // ---------------------------------------------------------------- GS dead (§4.5 step 10)
@@ -791,7 +828,7 @@ export class Bridge {
     this.phase = 'dead';
     this.log('error', 'GameScript silent for 30 s: pausing, no further saves');
     await this.rcon('pause').catch((e) => this.log('error', 'rcon pause failed', { err: String(e) }));
-    await this.stopSession('gs_dead');
+    await this.postSession({ action: 'stop', reason: 'gs_dead' });
   }
 
   // ---------------------------------------------------------------- SIGTERM (§4.5 step 12)

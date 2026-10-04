@@ -77,6 +77,7 @@
 
   function spust(hash) {
     zastavPrubeh();
+    zastavOdpocty();
     document.body.classList.add('hraje');
     hraEl.src = HRA + (hash || '');
   }
@@ -109,6 +110,7 @@
   }
 
   function vycisti() {
+    zastavOdpocty();
     tridyEl.replaceChildren();
     tridyEl.hidden = false;
   }
@@ -317,6 +319,41 @@
     tridyEl.appendChild(tlacitko('Zpět', zpet));
   }
 
+  // Server tridy se sam vypne v stopDeadline (2 h od spusteni nebo posledniho prodlouzeni, wallet job).
+  var odpocty = [];
+
+  function zastavOdpocty() {
+    odpocty.forEach(clearInterval);
+    odpocty = [];
+  }
+
+  function hms(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000));
+    var dve = function (n) { return ('0' + n).slice(-2); };
+    return Math.floor(s / 3600) + ':' + dve(Math.floor(s / 60) % 60) + ':' + dve(s % 60);
+  }
+
+  function odpocet(nazev, stopDeadline) {
+    var konec = Date.parse(stopDeadline);
+    var p = popisek('');
+    var tik = function () {
+      var zbyva = konec - Date.now();
+      p.textContent = nazev + ': ' + (zbyva > 0 ? 'Server se vypne za ' + hms(zbyva) : 'Server se vypíná.');
+    };
+    tik();
+    odpocty.push(setInterval(tik, 1000));
+    return p;
+  }
+
+  // Prodlouzeni (action extend: vzdy na 2 h od ted) a pokracovani po limitu 18 mesicu (action resume).
+  async function akceTridy(h, akce, chyby) {
+    chyba('');
+    var r = await penezenka('POST', '/classes/' + encodeURIComponent(h.classId) + '/session',
+      { schoolId: h.schoolId, requestId: crypto.randomUUID(), action: akce }).catch(function () { return { status: 0 }; });
+    await skola(h.schoolId, h.zpet, h.skola);
+    if (r.status !== 200) chyba(r.status === 403 ? chyby.zakaz : r.error === 'invalid_state' ? chyby.stav : chyby.jine);
+  }
+
   // Reset sveta (POST …/reset): jen zastavena trida. Dva kroky; druhy chce opsat nazev tridy.
   function resetujSvet(h) {
     var zpet = function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); };
@@ -368,7 +405,16 @@
         var role = t.canMayor ? 'Vstoupit jako starosta – ' : 'Sledovat – ';
         tridyEl.appendChild(tlacitko(role + h.className, function () { tridniListek(schoolId, t.classId, null); }));
         if (jeSuperadmin) tridyEl.appendChild(tlacitko('Hrát za žáka – ' + h.className, function () { vyberZaka(h); }));
-        if (t.canManage) tridyEl.appendChild(tlacitko('Ukončit hru – ' + h.className, function () { ukonciTridu(h); }));
+        if (t.canManage) {
+          if (t.stopDeadline) tridyEl.appendChild(odpocet(h.className, t.stopDeadline));
+          tridyEl.appendChild(tlacitko('Prodloužit na 2 hodiny – ' + h.className, function () {
+            akceTridy(h, 'extend', { zakaz: 'Hru této třídy nemůžete prodloužit.', stav: 'Hra už neběží.', jine: 'Hru se nepodařilo prodloužit.' });
+          }));
+          if (t.session === 'limit') tridyEl.appendChild(tlacitko('Pokračovat ve hře – ' + h.className, function () {
+            akceTridy(h, 'resume', { zakaz: 'Hru této třídy nemůžete pustit dál.', stav: 'Hra už nečeká na pokračování.', jine: 'Hru se nepodařilo pustit dál.' });
+          }));
+          tridyEl.appendChild(tlacitko('Ukončit hru – ' + h.className, function () { ukonciTridu(h); }));
+        }
       } else if (t.session === 'starting' || t.session === 'stopping') {
         tridyEl.appendChild(popisek(h.className + (t.session === 'starting' ? ' – hra se spouští' : ' – hra se ukončuje')));
       } else if (t.canManage) {

@@ -116,6 +116,9 @@ export class FakeWallet implements Wallet {
   slots = [{ slot: 1, company: 0, studentIds: ['s-1'] }, { slot: 2, company: null, studentIds: ['s-2'] }];
   hello: WalletResp = { status: 200, body: {} };
   override = new Map<string, Handler>();
+  /** Poll extras (2-hour lifetime): teacher resumes and the stop deadline. */
+  resumeSeq = 0;
+  stopDeadline: string | null = null;
 
   constructor() {
     this.setHello({});
@@ -142,7 +145,7 @@ export class FakeWallet implements Wallet {
         const query = new URLSearchParams(q);
         const after = Number(query.get('after'));
         const ops = this.ops.filter((o) => o.seq > after).slice(0, Number(query.get('limit')));
-        return { status: 200, body: { data: { ops, session: 'running' } } };
+        return { status: 200, body: { data: { ops, session: 'running', resumeSeq: this.resumeSeq, stopDeadline: this.stopDeadline } } };
       }
       case 'GET /slots':
         return { status: 200, body: { data: { slots: this.slots } } };

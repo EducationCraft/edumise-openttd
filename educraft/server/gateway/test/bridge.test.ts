@@ -324,17 +324,60 @@ describe('saves (§4.5 steps 8, 9, 12)', () => {
     expect(w.of('POST', '/saved')).toEqual([]);
   });
 
-  it('limit: saves, keeps the game paused and stops the session after 10 minutes', async () => {
+  it('limit: saves, reports limit, keeps the game paused and never stops the session itself', async () => {
     await b.attach(gs);
     const runs = gs.of('session').length;
     b.onGs(JSON.stringify({ t: 'limit', months: 18 }));
     await run(1_000);
     expect(gs.rcons.filter((c) => c === 'save current')).toHaveLength(1);
     expect(gs.sent.at(-1)).toEqual({ t: 'hello', v: 1 });
-    await run(10 * 60_000);
+    await run(60 * 60_000);
     expect(gs.of('session')).toHaveLength(runs);
-    expect(w.of('POST', '/session').map((c) => c.body)).toEqual([{ action: 'stop', reason: 'limit' }]);
+    expect(w.of('POST', '/session').map((c) => c.body)).toEqual([{ action: 'limit' }]);
     expect(gs.rcons.filter((c) => c === 'save current')).toHaveLength(1);
+    expect(w.of('GET', '/ops').length).toBeGreaterThan(1000); // still polling for a resume
+  });
+
+  it('teacher resume: a higher resumeSeq gives the GS a new sid (= new month window), once', async () => {
+    w.setHello({ resumeSeq: 2 });
+    w.resumeSeq = 2;
+    await b.attach(gs);
+    expect(gs.of('session')).toEqual([{ t: 'session', run: true, sid: 'sid-1.r2', months: 18 }]);
+    b.onGs(JSON.stringify({ t: 'limit', months: 18 }));
+    await run(5_000);
+    expect(gs.of('session')).toHaveLength(1);
+    w.ops = [deposit(1)];
+    w.resumeSeq = 3;
+    await run(5_000);
+    expect(gs.of('session')).toEqual([
+      { t: 'session', run: true, sid: 'sid-1.r2', months: 18 },
+      { t: 'session', run: true, sid: 'sid-1.r3', months: 18 },
+    ]);
+    expect(gs.rcons).toContain('say "Učitel pustil hru dál."');
+    expect(b.limited).toBe(false);
+    expect(results(1)).toEqual(['applied']); // ops flow again
+    await run(30_000);
+    expect(gs.of('session')).toHaveLength(2);
+  });
+
+  it('warns in chat 10 minutes and 1 minute before stopDeadline, once each; an extension warns again', async () => {
+    await b.attach(gs);
+    const says = () => gs.rcons.filter((c) => c.startsWith('say "'));
+    w.stopDeadline = new Date(Date.now() + 12 * 60_000).toISOString();
+    await run(60_000);
+    expect(says()).toEqual([]);
+    await run(70_000);
+    expect(says()).toEqual(['say "Server se za 10 minut uloží a vypne. Učitel může hru prodloužit."']);
+    await run(8 * 60_000);
+    expect(says()).toHaveLength(1);
+    await run(60_000);
+    expect(says().at(-1)).toBe('say "Server se za 1 minutu uloží a vypne. Učitel může hru prodloužit."');
+    await run(5 * 60_000);
+    expect(says()).toHaveLength(2);
+    w.stopDeadline = new Date(Date.now() + 5 * 60_000).toISOString(); // extended, late: only the 10 min one is due
+    await run(3_000);
+    expect(says()).toHaveLength(3);
+    expect(says().at(-1)).toContain('za 10 minut');
   });
 
   it('SIGTERM with held: final finance, save, snapshot, saved{final}', async () => {
