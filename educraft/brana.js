@@ -18,6 +18,7 @@
   var hraEl     = document.getElementById('hra');
 
   var idToken = null;
+  var jeSuperadmin = false;
 
   // ponytail: brana je jen na strane klienta. Samotna hra pro jednoho hrace je verejny GPL
   // software bez dat zaka. Tridni server pusti jen s listkem z penezenky (overuje ho gateway,
@@ -187,37 +188,100 @@
     });
   }
 
-  function vypisTridy(hodiny) {
-    hodiny.forEach(function (h) {
-      var role = h.role === 'mayor' ? 'Vstoupit jako starosta – ' : 'Sledovat – ';
-      tridyEl.appendChild(tlacitko(role + h.className, function () { tridniListek(h.schoolId, h.classId, null); }));
-      if (h.canPlayAsPupil) tridyEl.appendChild(tlacitko('Hrát za žáka – ' + h.className, function () { vyberZaka(h); }));
+  var BEZI = ['running', 'limit'];
+  var CEKANI_MS = 5 * 1000;
+  var CEKANI_MAX_MS = 4 * 60 * 1000;
+
+  function chyba(text) {
+    chybaEl.textContent = text;
+    chybaEl.hidden = !text;
+  }
+
+  // Spusteni hry tridy (contract §3.3: POST …/session {action:"start"}), pak cekani na running.
+  async function spustTridu(h) {
+    chyba('');
+    oznam('Spouštím server třídy…', '(první spuštění vytváří mapu, může trvat pár minut)');
+    vycisti();
+    tridyEl.hidden = true;
+    var cesta = '/classes/' + encodeURIComponent(h.classId);
+    try {
+      var r = await penezenka('POST', cesta + '/session', { schoolId: h.schoolId, requestId: crypto.randomUUID(), action: 'start' });
+      // invalid_state = uz se spousti (nekdo jiny klikl), staci cekat.
+      if (r.status !== 200 && r.error !== 'invalid_state') {
+        var duvod = r.error === 'game_server_not_provisioned' ? 'Server této třídy ještě není připravený.'
+          : r.status === 403 ? 'Hru této třídy nemůžete spustit.' : 'Hru se nepodařilo spustit.';
+        throw { duvod: duvod };
+      }
+      var konec = Date.now() + CEKANI_MAX_MS;
+      for (;;) {
+        await new Promise(function (ok) { setTimeout(ok, CEKANI_MS); });
+        var s = await penezenka('GET', cesta + '?schoolId=' + encodeURIComponent(h.schoolId));
+        var stav = s.status === 200 ? s.data.session : null;
+        if (BEZI.indexOf(stav) !== -1) { tridniListek(h.schoolId, h.classId, null); return; }
+        if (stav === 'stopped') throw { duvod: 'Server se nepodařilo spustit.' };
+        if (Date.now() > konec) throw { duvod: 'Server se nespustil do 4 minut. Zkuste to prosím znovu.' };
+      }
+    } catch (e) {
+      oznam('Hru teď nejde spustit.', 'Zkuste to prosím za chvíli znovu.');
+      chyba((e && e.duvod) || 'Nepodařilo se spojit se serverem.');
+      tridyEl.hidden = false;
+      tridyEl.appendChild(tlacitko('Zpět', function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); }));
+    }
+  }
+
+  function nazevSkoly(s) {
+    return s.name || 'Škola ' + s.schoolId.slice(0, 8);
+  }
+
+  // Tridy skoly z GET /classes; jen zapsane (gameKey). zpet = funkce zpet na vyber skol, nebo null.
+  async function skola(schoolId, zpet, nazev) {
+    oznam(nazev || 'Doprava', 'Hraj sám, nebo se připoj ke hře třídy.');
+    vycisti();
+    if (zpet) tridyEl.appendChild(tlacitko('Zpět na školy', zpet));
+    tridyEl.appendChild(tlacitko('Hrát samostatně', function () { spust(); }));
+    var r = await penezenka('GET', '/classes?schoolId=' + encodeURIComponent(schoolId)).catch(function () { return { status: 0 }; });
+    if (r.status !== 200) { tridyEl.appendChild(popisek('Třídy se nepodařilo načíst.')); return; }
+    var tridy = (r.data.classes || []).filter(function (t) { return t.gameKey; });
+    if (!tridy.length) { tridyEl.appendChild(popisek('Žádná třída školy není zapsaná do Dopravy.')); return; }
+    tridy.forEach(function (t) {
+      var h = { schoolId: schoolId, classId: t.classId, className: t.className || 'Třída', zpet: zpet, skola: nazev };
+      if (BEZI.indexOf(t.session) !== -1) {
+        var role = t.canMayor ? 'Vstoupit jako starosta – ' : 'Sledovat – ';
+        tridyEl.appendChild(tlacitko(role + h.className, function () { tridniListek(schoolId, t.classId, null); }));
+        if (jeSuperadmin) tridyEl.appendChild(tlacitko('Hrát za žáka – ' + h.className, function () { vyberZaka(h); }));
+      } else if (t.canManage) {
+        tridyEl.appendChild(tlacitko('Spustit hru – ' + h.className, function () { spustTridu(h); }));
+      } else {
+        tridyEl.appendChild(popisek(h.className + ' – hra neběží'));
+      }
     });
   }
 
   async function ucitel(superadmin) {
+    jeSuperadmin = superadmin;
     var odkaz = odkazZHashe();
     if (odkaz.s && odkaz.c) { tridniListek(odkaz.s, odkaz.c, odkaz.sid); return; }
-    oznam('Doprava', 'Hraj sám, nebo se připoj ke hře třídy.');
-    vycisti();
-    tridyEl.appendChild(tlacitko('Hrát samostatně', function () { spust(); }));
-    // Skoly zna penezenka z identity (claim schools:<id> casto nese ICO, ne UUID skoly).
-    var r = await penezenka('GET', '/sessions').catch(function () { return { status: 0 }; });
-    var hodiny = r.status === 200 ? (r.data.sessions || []) : [];
-    if (!hodiny.length) { tridyEl.appendChild(popisek('Žádná třída teď Dopravu nehraje.')); return; }
-    var skoly = {};
-    hodiny.forEach(function (h) { (skoly[h.schoolId] = skoly[h.schoolId] || []).push(h); });
-    var ids = Object.keys(skoly);
-    if (!superadmin || ids.length === 1) { vypisTridy(hodiny); return; }
-    // D9: superadmin vybira skolu → tridu → roli. Registr skol nema nazvy (spec §10 ot. 3).
-    ids.forEach(function (id) {
-      var tridy = skoly[id].map(function (h) { return h.className; }).join(', ');
-      tridyEl.appendChild(tlacitko('Škola ' + id.slice(0, 8) + ' (' + tridy + ')', function () {
-        oznam('Doprava', 'Vyber třídu a roli.');
-        vycisti();
-        vypisTridy(skoly[id]);
-      }));
-    });
+    oznam('Moment…', 'Načítám školy.');
+    // Skoly zna penezenka z identity (claim schools:<id> casto nese ICO, ne UUID skoly);
+    // superadmin dostane i skoly z registru penezenky.
+    var r = await penezenka('GET', '/my-schools').catch(function () { return { status: 0 }; });
+    var skoly = r.status === 200 ? (r.data.schools || []) : [];
+    if (skoly.length === 1) { skola(skoly[0].schoolId, null, nazevSkoly(skoly[0])); return; }
+    if (!skoly.length) {
+      oznam('Doprava', 'Hraj sám.');
+      vycisti();
+      tridyEl.appendChild(tlacitko('Hrát samostatně', function () { spust(); }));
+      tridyEl.appendChild(popisek(r.status === 200 ? 'Nejste učitelem žádné školy v Dopravě.' : 'Školy se nepodařilo načíst.'));
+      return;
+    }
+    skoly.sort(function (a, b) { return nazevSkoly(a).localeCompare(nazevSkoly(b), 'cs'); });
+    (function vyber() {
+      oznam('Doprava', 'Vyber školu.');
+      vycisti();
+      skoly.forEach(function (s) {
+        tridyEl.appendChild(tlacitko(nazevSkoly(s), function () { skola(s.schoolId, vyber, nazevSkoly(s)); }));
+      });
+    })();
   }
 
   (async function start() {

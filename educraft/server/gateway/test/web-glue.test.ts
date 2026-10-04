@@ -84,7 +84,8 @@ describe('brana.js', () => {
         return { ok: r.status === 200, status: r.status, json: async () => r.body };
       },
       atob: (s: string) => Buffer.from(s, 'base64').toString('binary'),
-      escape, setInterval, encodeURIComponent, decodeURIComponent, JSON, Object, Date, Error,
+      escape, setInterval, setTimeout, encodeURIComponent,
+      crypto: { randomUUID: () => 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b' }, decodeURIComponent, JSON, Object, Date, Error,
     };
     vm.runInNewContext(readFileSync(join(ROOT, 'educraft/brana.js'), 'utf8'), ctx);
     return { els, calls, tickets };
@@ -159,35 +160,91 @@ describe('brana.js', () => {
     expect(els.titulek.textContent).toBe('Hodina Dopravy teď neběží.');
   });
 
-  it('teacher: single-player plus mayor / spectator buttons from /sessions (schools from identity, even when the claim is an IČO)', async () => {
+  const cls = (o: any) => ({ pupils: 3, gameKey: 'g', session: 'stopped', canManage: false, canMayor: false, ...o });
+
+  it('teacher with one school (from identity, even when the claim is an IČO): straight to its enrolled classes by session and role', async () => {
     const { els, calls, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'], 'schools:12345678': 'TEACHER' }), {
-      'GET /sessions': () => ({ status: 200, body: { data: { sessions: [
-        { schoolId: S1, classId: K1, className: '6.I', session: 'running', role: 'mayor', canPlayAsPupil: false },
-        { schoolId: S1, classId: K2, className: '7.C', session: 'running', role: 'spectator', canPlayAsPupil: false },
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'TEACHER', name: 'ZŠ Demo' }] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [
+        cls({ classId: K1, className: '6.I', session: 'running', canMayor: true }),
+        cls({ classId: K2, className: '7.C', session: 'limit' }),
+        cls({ classId: P1, className: '8.B' }),
+        cls({ classId: S2, className: '9.A', gameKey: null }),
       ] } } }),
       [`POST /classes/${K1}/game-ticket`]: (body) => (body.schoolId === S1 ? ok : { status: 403, body: {} }),
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(calls.filter((c) => c.url.includes('/sessions'))).toHaveLength(1);
-    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Sledovat – 7.C']);
+    expect(calls.filter((c) => c.url.includes('/sessions'))).toHaveLength(0);
+    expect(els.titulek.textContent).toBe('ZŠ Demo');
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Sledovat – 7.C', '8.B – hra neběží']);
     await click(els, 'Vstoupit jako starosta – 6.I');
     expect(tickets).toEqual([{ schoolId: S1 }]);
     expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS));
   });
 
-  it('superadmin: school → class → "Hrát za žáka" → a concrete pupil', async () => {
+  it('teacher without schools keeps single-player with a notice', async () => {
+    const { els } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [] } } }),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Nejste učitelem žádné školy v Dopravě.']);
+  });
+
+  it('manager starts a stopped class, waits for running, then enters as mayor', async () => {
+    let state = 'starting';
+    const starts: any[] = [];
+    const { els, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: null }] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', canManage: true, canMayor: true })] } } }),
+      [`POST /classes/${K1}/session`]: (body) => { starts.push(body); return { status: 200, body: { data: { session: 'starting', sessionId: 'x' } } }; },
+      [`GET /classes/${K1}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { session: state } } }),
+      [`POST /classes/${K1}/game-ticket`]: () => ok,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(els.titulek.textContent).toBe('Škola 3f0c9a1b');
+    await click(els, 'Spustit hru – 6.I');
+    expect(starts).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', action: 'start' }]);
+    expect(els.titulek.textContent).toBe('Spouštím server třídy…');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(tickets).toEqual([]);
+    state = 'running';
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(tickets).toEqual([{ schoolId: S1 }]);
+    expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS));
+  });
+
+  it('a start that never reaches running times out after 4 minutes with a Czech error', async () => {
+    const { els, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN' }] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', canManage: true })] } } }),
+      [`POST /classes/${K1}/session`]: () => ({ status: 409, body: { error: 'invalid_state' } }),
+      [`GET /classes/${K1}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await click(els, 'Spustit hru – 6.I');
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 10_000);
+    expect(tickets).toEqual([]);
+    expect(els.chyba.textContent).toBe('Server se nespustil do 4 minut. Zkuste to prosím znovu.');
+    expect(labels(els)).toEqual(['Zpět']);
+  });
+
+  it('superadmin: school picker → class → "Hrát za žáka" → a concrete pupil', async () => {
     const { els, tickets } = load(jwt({ 'cognito:groups': ['superadmin'] }), {
-      'GET /sessions': () => ({ status: 200, body: { data: { sessions: [
-        { schoolId: S1, classId: K1, className: '6.I', session: 'running', role: 'mayor', canPlayAsPupil: true },
-        { schoolId: S2, classId: K2, className: '8.A', session: 'running', role: 'mayor', canPlayAsPupil: true },
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [
+        { schoolId: S2, role: 'SUPERADMIN', name: null },
+        { schoolId: S1, role: 'SUPERADMIN', name: 'Demoškola' },
       ] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', session: 'running', canManage: true, canMayor: true })] } } }),
       [`GET /classes/${K1}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { pupils: [{ studentId: P1, name: 'Tomáš N.', slot: 1 }] } } }),
       [`POST /classes/${K1}/game-ticket`]: () => ok,
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(labels(els)).toEqual(['Hrát samostatně', 'Škola 3f0c9a1b (6.I)', 'Škola 4f0c9a1b (8.A)']);
-    await click(els, 'Škola 3f0c9a1b (6.I)');
-    expect(labels(els)).toEqual(['Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I']);
+    expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
+    await click(els, 'Demoškola');
+    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I']);
+    await click(els, 'Zpět na školy');
+    expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
+    await click(els, 'Demoškola');
     await click(els, 'Hrát za žáka – 6.I');
     expect(labels(els)).toEqual(['Tomáš N.']);
     await click(els, 'Tomáš N.');
