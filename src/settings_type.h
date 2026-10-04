@@ -419,6 +419,7 @@ struct NetworkSettings {
 	std::string rcon_password; ///< password for rconsole (server side)
 	NetworkAuthorizedKeys rcon_authorized_keys; ///< Public keys of clients that are authorized to use the rconsole (server side).
 	bool allow_insecure_admin_login; ///< Whether to allow logging in as admin using the insecure old JOIN packet.
+	bool edu_wallet_mode; ///< EduCraft: gate paid cosmetics and admit clients only through edu_admit.
 	std::string admin_password; ///< password for the admin network
 	NetworkAuthorizedKeys admin_authorized_keys; ///< Public keys of clients that are authorized to use the admin network.
 	std::string client_name; ///< name of the player (as client)
@@ -629,6 +630,7 @@ struct EconomySettings {
 	bool fund_buildings; ///< allow funding new buildings
 	bool fund_roads; ///< allow funding local road reconstruction
 	bool give_money; ///< allow giving other companies money
+	bool edu_bankruptcy_hold; ///< EduCraft: insolvency never goes past the warnings (no sale, no removal).
 	bool mod_road_rebuild; ///< roadworks remove unnecessary RoadBits
 	bool multiple_industry_per_town; ///< allow many industries of the same type per town
 	uint8_t town_growth_rate; ///< town growth rate

@@ -43,6 +43,7 @@
 #	include "../core/string_consumer.hpp"
 #endif
 #include <charconv>
+#include <cstdlib>
 
 #include "table/strings.h"
 
@@ -814,6 +815,10 @@ bool NetworkClientConnectGame(std::string_view connection_string, CompanyID defa
 	std::string resolved_connection_string = ServerAddress::Parse(connection_string, NETWORK_DEFAULT_PORT, &join_as).connection_string;
 
 	if (!_network_available) return false;
+#ifdef __EMSCRIPTEN__
+	/* EduCraft: the gate passes the pupil's real name (pre.js sets EDU_CLIENT_NAME); a fresh browser has none. */
+	if (const char *edu_name = std::getenv("EDU_CLIENT_NAME"); edu_name != nullptr && *edu_name != '\0') _settings_client.network.client_name = edu_name;
+#endif
 	if (!NetworkValidateOurClientName()) return false;
 
 	_network_join.connection_string = std::move(resolved_connection_string);

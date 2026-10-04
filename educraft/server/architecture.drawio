@@ -1,0 +1,144 @@
+<mxfile>
+  <diagram name="EduMise Doprava" id="arch">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10" page="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="gBrowser" value="Prohlížeč žáka / učitele" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=top;fontStyle=1;arcSize=4;" vertex="1" parent="1">
+          <mxGeometry x="20" y="60" width="240" height="340" as="geometry"/>
+        </mxCell>
+        <mxCell id="gDoprava" value="Stack Doprava · ECS Fargate · VPC public, bez NAT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;verticalAlign=top;fontStyle=1;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="320" y="200" width="620" height="360" as="geometry"/>
+        </mxCell>
+        <mxCell id="gTask" value="Fargate task doprava-&amp;lt;gameKey&amp;gt; · 1 na třídu · desired 0/1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;verticalAlign=top;arcSize=4;" vertex="1" parent="1">
+          <mxGeometry x="530" y="240" width="390" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="gWallet" value="Stack EducraftWallet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;fontStyle=1;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="960" y="220" width="540" height="340" as="geometry"/>
+        </mxCell>
+        <mxCell id="EM" value="&lt;b&gt;EduMise app&lt;/b&gt;&lt;br&gt;edumise.educraft.cz" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="WASM" value="&lt;b&gt;OpenTTD WASM klient&lt;/b&gt;&lt;br&gt;ottd.edumise.educraft.cz&lt;br&gt;S3 + CloudFront" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="295" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="ALB" value="&lt;b&gt;ALB :443&lt;/b&gt;&lt;br&gt;ottd-server.edumise&lt;br&gt;.educraft.cz" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="300" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="GW" value="&lt;b&gt;gateway&lt;/b&gt; :8080&lt;br&gt;WSS proxy · tickety&lt;br&gt;wallet bridge" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="550" y="300" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="OT" value="&lt;b&gt;openttd&lt;/b&gt; dedicated&lt;br&gt;:3979 hra&lt;br&gt;:3977 admin" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="300" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="EFS" value="&lt;b&gt;EFS&lt;/b&gt;&lt;br&gt;savy per hra" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;size=8;" vertex="1" parent="1">
+          <mxGeometry x="540" y="470" width="120" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="ECR" value="&lt;b&gt;ECR&lt;/b&gt;&lt;br&gt;image :git SHA" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="680" y="470" width="120" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="SSMD" value="&lt;b&gt;SSM&lt;/b&gt;&lt;br&gt;klíče hry" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="820" y="470" width="100" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="RS" value="&lt;b&gt;Cognito&lt;/b&gt; BPL7GyfzH&lt;br&gt;M2M klienti · scope wallet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="470" y="20" width="240" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="WR" value="&lt;b&gt;API Gateway&lt;/b&gt; api.educraft.cz&lt;br&gt;ANY /wallet/{proxy+}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="100" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="ID" value="&lt;b&gt;educraft-identity&lt;/b&gt;&lt;br&gt;id.educraft.cz" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="100" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="WAPI" value="&lt;b&gt;Lambda&lt;/b&gt;&lt;br&gt;educraft-wallet-api" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="260" width="220" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="WJOBS" value="&lt;b&gt;Lambda&lt;/b&gt;&lt;br&gt;educraft-wallet-jobs" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="260" width="210" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="DDB" value="&lt;b&gt;DynamoDB&lt;/b&gt;&lt;br&gt;Journal + State" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;size=8;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="370" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="SSMW" value="&lt;b&gt;SSM&lt;/b&gt; wallet secrets" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="480" width="220" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="SCH" value="&lt;b&gt;EventBridge Scheduler&lt;/b&gt;&lt;br&gt;měsíční uzávěrka · konec roku" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="470" width="210" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="legend" value="&lt;b&gt;Legenda&lt;/b&gt;&lt;table style=&quot;font-size:11px;border-spacing:8px 2px&quot;&gt;&lt;tr&gt;&lt;td valign=&quot;top&quot;&gt;&lt;b&gt;EduMise app&lt;/b&gt; – rozcestník her, žák / učitel přihlášený účtem EduCraft&lt;br&gt;&lt;b&gt;WASM klient&lt;/b&gt; – OpenTTD běžící přímo v prohlížeči&lt;br&gt;&lt;b&gt;ALB&lt;/b&gt; – veřejný vstup (HTTPS/WSS); podle cesty /g/&amp;lt;gameKey&amp;gt; pošle hráče na server jeho třídy&lt;br&gt;&lt;b&gt;gateway&lt;/b&gt; – vrátný hry: ověří lístek, přepošle spojení do hry, hlásí výsledky peněžence&lt;br&gt;&lt;b&gt;openttd&lt;/b&gt; – herní server, jeden svět na třídu&lt;br&gt;&lt;b&gt;gameKey&lt;/b&gt; – id hry třídy; &lt;b&gt;desired 0/1&lt;/b&gt; – server běží jen během hodiny&lt;br&gt;&lt;b&gt;EFS&lt;/b&gt; – síťový disk AWS; drží uložené hry, aby svět přežil vypnutí serveru mezi hodinami&lt;/td&gt;&lt;td valign=&quot;top&quot;&gt;&lt;b&gt;ECR&lt;/b&gt; – úložiště Docker obrazů serveru (tag = git SHA, musí sedět s klientem)&lt;br&gt;&lt;b&gt;SSM&lt;/b&gt; – trezor tajných klíčů (Parameter Store)&lt;br&gt;&lt;b&gt;Cognito&lt;/b&gt; – přihlašování; M2M = přihlášení služby bez uživatele&lt;br&gt;&lt;b&gt;API Gateway&lt;/b&gt; – veřejná adresa api.educraft.cz&lt;br&gt;&lt;b&gt;wallet-api&lt;/b&gt; – peněženka diamantů; vydává lístky do hry, spouští a vypíná server třídy&lt;br&gt;&lt;b&gt;wallet-jobs + Scheduler&lt;/b&gt; – měsíční uzávěrka, vyúčtování na konci roku&lt;br&gt;&lt;b&gt;DynamoDB&lt;/b&gt; – databáze peněženky (účetní deník + stav)&lt;br&gt;&lt;b&gt;educraft-identity&lt;/b&gt; – kdo je v jaké třídě (roster)&lt;/td&gt;&lt;td valign=&quot;top&quot;&gt;&lt;b&gt;Čáry&lt;/b&gt;&lt;br&gt;plná šipka – volání / data&lt;br&gt;čárkovaná – klíče, přihlášení služby, Docker obraz&lt;br&gt;&lt;font color=&quot;#d79b00&quot;&gt;oranžová čárkovaná&lt;/font&gt; – start / stop serveru&lt;br&gt;čára bez šipky – připojený disk&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#ffffff;strokeColor=#999999;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="20" y="600" width="1480" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" value="Bearer JWT" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="EM" target="WR">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" value="#w=wss + ticket" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;" edge="1" parent="1" source="EM" target="WASM">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" value="wss /g/&amp;lt;gameKey&amp;gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="WASM" target="ALB">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="ALB" target="GW">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" value="tcp · admin" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="GW" target="OT">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" value="/wallet/game/*" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;exitX=0.75;exitY=0;entryX=0.115;entryY=1;" edge="1" parent="1" source="GW" target="WR">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="670" y="180"/>
+              <mxPoint x="1030" y="180"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" value="client_credentials" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;labelBackgroundColor=default;exitX=0.25;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="GW" target="RS">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=none;exitX=0.3125;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="GW" target="EFS">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="OT" target="SSMD">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="ECR" target="gTask">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="740" y="440"/>
+              <mxPoint x="725" y="440"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.423;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="WR" target="WAPI">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e14" value="roster" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;exitX=0.9;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="WAPI" target="ID">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1198" y="200"/>
+              <mxPoint x="1400" y="200"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e15" value="ecs:UpdateService&lt;br&gt;start / stop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#d79b00;fontColor=#d79b00;labelBackgroundColor=default;exitX=0;exitY=0.3;entryX=1;entryY=0.22;" edge="1" parent="1" source="WAPI" target="gTask">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="WAPI" target="DDB">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0;exitY=0.8;entryX=0;entryY=0.5;" edge="1" parent="1" source="WAPI" target="SSMW">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="980" y="308"/>
+              <mxPoint x="980" y="505"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.1;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="WJOBS" target="DDB">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="SCH" target="WJOBS">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

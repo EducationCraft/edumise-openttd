@@ -1,0 +1,28 @@
+{
+  "name": "edumise-doprava-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WSS proxy + admin-port bridge for the EduMise Doprava game server (contract §4, §6)",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --outfile=dist/main.js --format=cjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ssm": "^3.1141.0",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
