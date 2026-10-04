@@ -4,7 +4,7 @@
   var AUTH_BASE = 'https://api.educraft.cz';
   var WALLET = AUTH_BASE + '/wallet';
   var LOGIN = 'https://login.educraft.cz/';
-  var UCITELSKE_SKUPINY = ['TEACHER', 'ASSISTANT', 'ADMIN', 'superadmin'];
+  var UCITELSKE_SKUPINY = ['teacher', 'assistant', 'admin', 'superadmin'];
   var HRA = 'openttd.html';
   // Listek je jednorazovy a plati 120 s; ramecek dostane cerstvy pred kazdym pripojenim.
   var OBNOVA_LISTKU_MS = 90 * 1000;
@@ -236,7 +236,8 @@
     }
     var c = claimy(idToken || '');
     if (c['custom:student_id']) { zak(); return; }
-    var skupiny = c['cognito:groups'] || [];
+    // Skupiny bez ohledu na velikost pismen, stejne jako penezenka (contract §1.2).
+    var skupiny = (c['cognito:groups'] || []).map(function (g) { return String(g).toLowerCase(); });
     if (skupiny.some(function (g) { return UCITELSKE_SKUPINY.indexOf(g) !== -1; })) { ucitel(c, skupiny.indexOf('superadmin') !== -1); return; }
     odmitni('Tento účet nemá do hry přístup.');
     odkazEl.textContent = 'Přihlásit se jiným účtem';

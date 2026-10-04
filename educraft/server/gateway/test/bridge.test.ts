@@ -119,6 +119,16 @@ describe('op delivery (§4.5 step 5)', () => {
     expect(w.of('POST', '/ops/2/result')[0].body).toEqual({ status: 'failed', reason: 'name_taken' });
   });
 
+  it('reports a ring re-ack without reason so the wallet applies its default', async () => {
+    w.ops = [{ seq: 1, kind: 'rename', slot: 1, company: 0, value: 'Rychlá doprava', noop: false }];
+    gs.ignoreOps = true; // op 1 stays in flight; answer it the way a ring re-ack looks (§4.4)
+    await b.attach(gs);
+    await run(2_000);
+    b.onGs(JSON.stringify({ t: 'ack', seq: 1, ok: false }));
+    await run(2_000);
+    expect(w.of('POST', '/ops/1/result')[0].body).toEqual({ status: 'failed' });
+  });
+
   it('mayor ops: tax/news/expand without slot/company, grant/fine with them; ack p goes to the result', async () => {
     w.ops = [
       { seq: 1, kind: 'grant', slot: 1, company: 0, pounds: 1000, noop: false },

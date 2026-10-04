@@ -437,7 +437,8 @@ export class Bridge {
     if (f.op.noop) return;
     // Mayor ops ack what was actually applied (pounds | houses, §4.3); a ring re-ack has no p.
     const applied = typeof m.p === 'number' ? { status: 'applied', p: m.p } : { status: 'applied' };
-    this.queueResult(m.seq, m.ok ? applied : { status: 'failed', reason: m.r ?? 'invalid' });
+    // A ring re-ack has no r: omit reason so the wallet records its default 'failed_in_game'.
+    this.queueResult(m.seq, m.ok ? applied : m.r ? { status: 'failed', reason: m.r } : { status: 'failed' });
   }
 
   private onNack(m: { seq: number; expect: number; r: string }): void {
@@ -615,7 +616,7 @@ export class Bridge {
       maxLoanPounds: c.ml,
       valuePounds: c.val,
       colour: c.col,
-      name: names.get(c.c) ?? this.companyNames.get(c.c) ?? '',
+      name: names.get(c.c) ?? this.companyNames.get(c.c) ?? null, // null keeps the wallet's known name
       inc0: c.i0,
       exp0: c.e0,
       inc1: c.i1,
@@ -898,7 +899,7 @@ export class Bridge {
     let r: WalletResp | null = null;
     for (let i = 0; i < 3 && !r; i++) {
       try {
-        r = await this.wcall('POST', '/companies', { slot, company, companyName: this.companyNames.get(company) ?? '', studentId: c.studentId });
+        r = await this.wcall('POST', '/companies', { slot, company, companyName: this.companyNames.get(company) ?? null, studentId: c.studentId });
         if (r.status >= 500 || r.status === 429) r = null;
       } catch {
         r = null;
