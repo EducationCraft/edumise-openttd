@@ -269,14 +269,26 @@
     prubehEl = null;
   }
 
+  // Pred spustenim ucitel vybere, jak dlouho server pobezi (wallet: minutes 15–240, strop 4 h od startu).
+  var DELKY = [[45, '45 minut'], [90, '1,5 hodiny'], [120, '2 hodiny'], [180, '3 hodiny'], [240, '4 hodiny']];
+  function delkaHry(h) {
+    chyba('');
+    oznam('Spustit hru – ' + h.className, 'Jak dlouho má server běžet? Pak se sám uloží a vypne.');
+    vycisti();
+    DELKY.forEach(function (d) {
+      tridyEl.appendChild(tlacitko(d[1], function () { spustTridu(h, d[0]); }));
+    });
+    tridyEl.appendChild(tlacitko('Zpět', function () { skola(h.schoolId, h.zpet, h.skola); }));
+  }
+
   // Spusteni hry tridy (contract §3.3: POST …/session {action:"start"}), pak cekani na running.
-  async function spustTridu(h) {
+  async function spustTridu(h, minuty) {
     chyba('');
     oznam('Spouštím server třídy…', h.resetPending ? 'Vytváří se nový svět, chvíli to potrvá.' : 'Načítá se uložený svět.');
     ukazPrubeh(h.resetPending ? RESET_MS : START_MS);
     var cesta = '/classes/' + encodeURIComponent(h.classId);
     try {
-      var r = await penezenka('POST', cesta + '/session', { schoolId: h.schoolId, requestId: crypto.randomUUID(), action: 'start' });
+      var r = await penezenka('POST', cesta + '/session', { schoolId: h.schoolId, requestId: crypto.randomUUID(), action: 'start', minutes: minuty });
       // invalid_state = uz se spousti (nekdo jiny klikl), staci cekat.
       if (r.status !== 200 && r.error !== 'invalid_state') {
         var duvod = r.error === 'game_server_not_provisioned' ? 'Server této třídy ještě není připravený.'
@@ -421,7 +433,7 @@
       } else if (t.session === 'starting' || t.session === 'stopping') {
         tridyEl.appendChild(popisek(h.className + (t.session === 'starting' ? ' – hra se spouští' : ' – hra se ukončuje')));
       } else if (t.canManage) {
-        tridyEl.appendChild(tlacitko('Spustit hru – ' + h.className, function () { spustTridu(h); }));
+        tridyEl.appendChild(tlacitko('Spustit hru – ' + h.className, function () { delkaHry(h); }));
         if (t.resetPending) tridyEl.appendChild(popisek(h.className + ' – nový svět čeká na spuštění'));
         else tridyEl.appendChild(tlacitko('Resetovat svět – ' + h.className, function () { resetujSvet(h); }));
       } else {
