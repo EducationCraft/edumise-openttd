@@ -308,7 +308,8 @@
   // archivuje stary svet, task se restartuje (ALB draining 30 s + ECS) a generuje nova mapa ~RESET_MS.
   // ponytail: pevne konstanty; az bude vic startu, pocitat median z walletu.
   var START_MS = 55 * 1000;
-  var RESET_MS = 165 * 1000;
+  // 2026-10-17, mapa 4096 x 4096: archiv 30 s + restart tasku ~2 min + generovani < 30 s = ~3 min do prvniho joinu.
+  var RESET_MS = 180 * 1000;
   var prubehEl = null;
 
   // Ukazatel podle casu: do odhadu linearne k 90 %, pak jen pomalu k 99 % (nikdy neskonci driv nez server).
