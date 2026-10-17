@@ -176,7 +176,7 @@ spending and goes to a human as `loaninit ok:false` instead of being refunded.
 | `os/emscripten/pre.js` | §6.4: with `#w=<wss url>` the web client joins the class server `doprava:3979#255` (spectator) over the ticket URL, refreshed by the gate's `edumise-ticket` postMessage. With `#p=1` also the in-game wallet bridge (`Module.eduWallet`, `edumise-wallet` message). |
 | `src/edu_wallet_gui.{h,cpp}`, `src/CMakeLists.txt` | In-game wallet window (deposit diamonds, see "The gate"). New files, raw Czech strings, no language file change. |
 | `src/toolbar_gui.cpp`, `src/window_type.h`, `CMakeLists.txt` | Finances menu item "Vklad diamantů" (only when `Module.eduWallet` exists), `WindowClass::EduWallet`, export `_em_openttd_edu_wallet`. |
-| `src/table/settings/*.ini` (gui, locale, misc, old_gameopt, world) | Czech defaults: CZK, town names, language. |
+| `src/table/settings/*.ini` (gui, locale, misc, old_gameopt, world) | Czech defaults: CZK, town names, language. `misc.prefer_sprite_font` defaults to `true` so a fresh client uses the classic sprite font, not the bundled OpenTTD-Sans (OpenTTD 14+ default). Affects every build. |
 | `os/emscripten/*`, `CMakeLists.txt` | CSP-safe shell, Czech in the WASM bundle. |
 
 A7 deviates from the contract on purpose: the contract gates it with `edu_wallet_mode`,
