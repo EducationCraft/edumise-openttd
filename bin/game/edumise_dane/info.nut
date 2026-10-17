@@ -4,6 +4,8 @@
 	function GetShortName()   { return "EMDA"; }
 	function GetDescription() { return "Daň z příjmů právnických osob podle českého zákona: 21 % ze základu daně (výnosy − náklady − odpisy), přiznání za kalendářní rok k 1. 4., zálohy podle poslední známé daně, ztráta 2 roky zpět a 5 let dopředu."; }
 	function GetVersion()     { return 5; }
+	/* Every older save loads: Load() tolerates missing keys. Without this OpenTTD drops the data of an older version. */
+	function MinVersionToLoad() { return 1; }
 	function GetAPIVersion()  { return "16"; }
 	function GetDate()        { return "2026-10-04"; }
 	function CreateInstance() { return "EduMiseDane"; }
