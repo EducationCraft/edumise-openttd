@@ -64,6 +64,33 @@ describe('pre.js', () => {
     expect(run('')).toBeUndefined();
   });
 
+  it('with #p=1 bridges the in-game wallet window to the parent and back', () => {
+    const posted: any[] = [];
+    const calls: any[] = [];
+    const { ctx, parent, send } = load('#w=' + encodeURIComponent(WSS) + '&n=x&p=1');
+    (parent as any).postMessage = (m: any, o: string) => posted.push([m, o]);
+    ctx.Module.cwrap = (name: string) => (...a: any[]) => calls.push([name, ...a]);
+    ctx.Module.eduWallet(0);
+    ctx.Module.eduWallet(25);
+    expect(posted).toEqual([
+      [{ t: 'edumise-wallet-get' }, 'https://ottd.edumise.educraft.cz'],
+      [{ t: 'edumise-deposit', amountTenths: 25 }, 'https://ottd.edumise.educraft.cz'],
+    ]);
+    const reply = { t: 'edumise-wallet', walletTenths: 98, hasCompany: true, deposit: true, message: 'ok' };
+    send({ origin: 'https://evil.example', source: parent, data: reply });
+    send({ origin: 'https://ottd.edumise.educraft.cz', source: {}, data: reply });
+    send({ origin: 'https://ottd.edumise.educraft.cz', source: parent, data: { ...reply, walletTenths: '98' } });
+    expect(calls).toEqual([]);
+    send({ origin: 'https://ottd.edumise.educraft.cz', source: parent, data: reply });
+    send({ origin: 'https://ottd.edumise.educraft.cz', source: parent, data: { t: 'edumise-wallet', walletTenths: -7, hasCompany: false, message: 'x'.repeat(400) } });
+    expect(calls).toEqual([['em_openttd_edu_wallet', 98, 3, 'ok'], ['em_openttd_edu_wallet', -1, 0, 'x'.repeat(300)]]);
+  });
+
+  it('offers no wallet without #p=1 or outside a class game', () => {
+    expect(load('#w=' + encodeURIComponent(WSS)).ctx.Module.eduWallet).toBeUndefined();
+    expect(load('#p=1').ctx.Module.eduWallet).toBeUndefined();
+  });
+
   it('ignores a #w pointing anywhere else', () => {
     const { ctx } = load('#w=' + encodeURIComponent('wss://evil.example/g/c3f0c9a1b2c4d?t=x'));
     expect(ctx.Module.arguments).not.toContain('-n');
@@ -88,7 +115,9 @@ describe('brana.js', () => {
     const els: Record<string, any> = { titulek: el(), zprava: el(), chyba: el(), odkaz: el(), tridy: el(), hra: el() };
     const calls: { url: string; init: any }[] = [];
     const tickets: any[] = [];
+    const listeners: ((e: any) => void)[] = [];
     const ctx: any = {
+      window: { addEventListener: (_: string, f: any) => listeners.push(f) },
       location: { origin: 'https://ottd.edumise.educraft.cz', hash },
       document: {
         getElementById: (id: string) => els[id],
@@ -108,7 +137,12 @@ describe('brana.js', () => {
       crypto: { randomUUID: () => 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b' }, decodeURIComponent, JSON, Object, Date, Error,
     };
     vm.runInNewContext(readFileSync(join(ROOT, 'educraft/brana.js'), 'utf8'), ctx);
-    return { els, calls, tickets };
+    /** A message from the game frame (or, with `source`, from somewhere else). */
+    const fromGame = async (data: any, source = els.hra.contentWindow, origin = 'https://ottd.edumise.educraft.cz') => {
+      listeners.forEach((f) => f({ origin, source, data }));
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    return { els, calls, tickets, fromGame };
   }
 
   const S1 = '3f0c9a1b-2c4d-4e5f-8a9b-0c1d2e3f4a5b';
@@ -223,7 +257,9 @@ describe('brana.js', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(els.titulek.textContent).toBe('Škola 3f0c9a1b');
     await click(els, 'Spustit hru – 6.I');
-    expect(starts).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', action: 'start' }]);
+    expect(labels(els)).toEqual(['45 minut', '1,5 hodiny', '2 hodiny', '3 hodiny', '4 hodiny', 'Zpět']);
+    await click(els, '45 minut');
+    expect(starts).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', action: 'start', minutes: 45 }]);
     expect(els.titulek.textContent).toBe('Spouštím server třídy…');
     await vi.advanceTimersByTimeAsync(10_000);
     expect(tickets).toEqual([]);
@@ -339,6 +375,7 @@ describe('brana.js', () => {
     });
     await vi.advanceTimersByTimeAsync(0);
     await click(els, 'Spustit hru – 6.I');
+    await click(els, '2 hodiny');
     await vi.advanceTimersByTimeAsync(4 * 60_000 + 10_000);
     expect(tickets).toEqual([]);
     expect(els.chyba.textContent).toBe('Server se nespustil do 4 minut. Zkuste to prosím znovu.');
@@ -373,5 +410,72 @@ describe('brana.js', () => {
     const { tickets } = load(jwt({ 'cognito:groups': ['superadmin'] }), { [`POST /classes/${K1}/game-ticket`]: () => ok }, `#s=${S1}&c=${K1}&as=pupil&sid=${P1}`);
     await vi.advanceTimersByTimeAsync(0);
     expect(tickets).toEqual([{ schoolId: S1, as: 'pupil', studentId: P1 }]);
+  });
+
+  describe('in-game wallet', () => {
+    const pupilTicket = { status: 200, body: { data: { url: WSS, expiresAt: 'x', role: 'pupil', playerName: 'Tomáš N.' } } };
+    const sessions = () => ({ status: 200, body: { data: { sessions: [{ classId: K1, className: '6.I', session: 'running', own: true }] } } });
+    const me = (walletTenths: number, company: number | null = 2, session = 'running') =>
+      () => ({ status: 200, body: { data: { walletTenths, game: { company, session } } } });
+    const replies = (els: any) => els.hra.contentWindow.postMessage.mock.calls.map((c: any[]) => c[0]).filter((m: any) => m.t === 'edumise-wallet');
+
+    it('a pupil in their own class gets #p=1; the game reads the balance through the gate', async () => {
+      const { els, fromGame } = load(jwt({ 'custom:student_id': 's-1' }), {
+        'GET /me/sessions': sessions, 'POST /me/game-ticket': () => pupilTicket, 'GET /me': me(123, null),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(els.hra.src).toBe('openttd.html#w=' + encodeURIComponent(WSS) + '&n=' + encodeURIComponent('Tomáš N.') + '&p=1');
+      await fromGame({ t: 'edumise-wallet-get' });
+      await fromGame({ t: 'edumise-wallet-get' }, {});
+      await fromGame({ t: 'edumise-wallet-get' }, els.hra.contentWindow, 'https://evil.example');
+      expect(replies(els)).toEqual([{ t: 'edumise-wallet', walletTenths: 123, hasCompany: false, deposit: false, message: '' }]);
+      expect(els.hra.contentWindow.postMessage.mock.calls.at(-1)[1]).toBe('https://ottd.edumise.educraft.cz');
+    });
+
+    it('a deposit keeps its requestId over 503 and network errors and answers with the Kč amount', async () => {
+      const bodies: any[] = [];
+      let n = 0;
+      const { els, fromGame } = load(jwt({ 'custom:student_id': 's-1' }), {
+        'GET /me/sessions': sessions, 'POST /me/game-ticket': () => pupilTicket, 'GET /me': me(73),
+        'POST /me/deposits': (b) => { bodies.push(b); return n++ === 0 ? { status: 503, body: { error: 'busy' } } : { status: 200, body: { data: { txId: 't', seq: 1, pounds: b.amountTenths * 150, state: 'reserved' } } }; },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await fromGame({ t: 'edumise-deposit', amountTenths: 50 });
+      await fromGame({ t: 'edumise-deposit', amountTenths: 50 }); // second one while the first runs: dropped
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(bodies).toEqual([
+        { requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', amountTenths: 50 },
+        { requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', amountTenths: 50 },
+      ]);
+      expect(replies(els)).toEqual([{ t: 'edumise-wallet', walletTenths: 73, hasCompany: true, deposit: true, message: 'Vklad 307 500 Kč odeslán, ve hře se objeví za chvilku.' }]);
+    });
+
+    it('a refused deposit answers with the Czech reason; bad amounts are ignored', async () => {
+      const bodies: any[] = [];
+      const { els, fromGame } = load(jwt({ 'custom:student_id': 's-1' }), {
+        'GET /me/sessions': sessions, 'POST /me/game-ticket': () => pupilTicket, 'GET /me': me(5),
+        'POST /me/deposits': (b) => { bodies.push(b); return { status: 409, body: { error: 'insufficient_funds' } }; },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await fromGame({ t: 'edumise-deposit', amountTenths: 0 });
+      await fromGame({ t: 'edumise-deposit', amountTenths: 1.5 });
+      await fromGame({ t: 'edumise-deposit', amountTenths: 10 });
+      expect(bodies).toHaveLength(1);
+      expect(replies(els)).toEqual([{ t: 'edumise-wallet', walletTenths: 5, hasCompany: true, deposit: true, message: 'Nemáš dost diamantů.' }]);
+    });
+
+    it('a pupil watching another class gets no wallet', async () => {
+      const bodies: any[] = [];
+      const { els, fromGame } = load(jwt({ 'custom:student_id': 's-1' }), {
+        'GET /me/sessions': sessions, 'GET /me': me(100),
+        'POST /me/game-ticket': () => ({ status: 200, body: { data: { url: WSS, expiresAt: 'x', role: 'spectator', playerName: 'Tomáš N.' } } }),
+        'POST /me/deposits': (b) => { bodies.push(b); return { status: 200, body: { data: { pounds: 1 } } }; },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(els.hra.src).not.toContain('p=1');
+      await fromGame({ t: 'edumise-deposit', amountTenths: 10 });
+      expect(bodies).toEqual([]);
+      expect(replies(els)).toEqual([]);
+    });
   });
 });
