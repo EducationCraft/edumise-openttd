@@ -366,7 +366,7 @@ describe('brana.js', () => {
     expect(els.titulek.textContent).toBe('Svět je resetován.');
   });
 
-  it('a start that never reaches running times out after 4 minutes with a Czech error', async () => {
+  it('a start that never reaches running times out after 15 minutes with a Czech error', async () => {
     const { els, tickets } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN' }] } } }),
       [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', canManage: true })] } } }),
@@ -376,9 +376,9 @@ describe('brana.js', () => {
     await vi.advanceTimersByTimeAsync(0);
     await click(els, 'Spustit hru – 6.I');
     await click(els, '2 hodiny');
-    await vi.advanceTimersByTimeAsync(4 * 60_000 + 10_000);
+    await vi.advanceTimersByTimeAsync(15 * 60_000 + 10_000);
     expect(tickets).toEqual([]);
-    expect(els.chyba.textContent).toBe('Server se nespustil do 4 minut. Zkuste to prosím znovu.');
+    expect(els.chyba.textContent).toBe('Server se nespustil do 15 minut. Zkuste to prosím znovu.');
     expect(labels(els)).toEqual(['Zpět']);
   });
 

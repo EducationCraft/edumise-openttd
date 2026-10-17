@@ -32,8 +32,8 @@ describe('DopravaStack (contract §6.1)', () => {
   it('task definition: two containers, gateway depends on openttd START, EFS access point', () => {
     t.hasResourceProperties('AWS::ECS::TaskDefinition', {
       Family: `doprava-${KEY}`,
-      Cpu: '1024',
-      Memory: '2048',
+      Cpu: '2048',
+      Memory: '4096',
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({ Name: 'openttd', StopTimeout: 120, Environment: [{ Name: 'ADMIN_AUTHORIZED_KEY', Value: 'ab'.repeat(32) }] }),
         Match.objectLike({

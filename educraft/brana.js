@@ -294,7 +294,8 @@
 
   var BEZI = ['running', 'limit'];
   var CEKANI_MS = 5 * 1000;
-  var CEKANI_MAX_MS = 4 * 60 * 1000;
+  // Nova mapa 4096 x 4096 se generuje nekolik minut (2026-10-17), proto 15 min.
+  var CEKANI_MAX_MS = 15 * 60 * 1000;
 
   function chyba(text) {
     chybaEl.textContent = text;
@@ -372,7 +373,7 @@
         var stav = s.status === 200 ? s.data.session : null;
         if (BEZI.indexOf(stav) !== -1) { tridniListek(h.schoolId, h.classId, null); return; }
         if (stav === 'stopped') throw { duvod: 'Server se nepodařilo spustit.' };
-        if (Date.now() > konec) throw { duvod: 'Server se nespustil do 4 minut. Zkuste to prosím znovu.' };
+        if (Date.now() > konec) throw { duvod: 'Server se nespustil do 15 minut. Zkuste to prosím znovu.' };
       }
     } catch (e) {
       zastavPrubeh();

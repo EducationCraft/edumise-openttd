@@ -177,8 +177,9 @@ export class DopravaStack extends Stack {
 
     const task = new ecs.FargateTaskDefinition(scope, 'Task', {
       family: `doprava-${key}`,
-      cpu: 1024,
-      memoryLimitMiB: 2048,
+      // 2 vCPU / 4 GB for the 4096 x 4096 map (2026-10-17; was 1 vCPU / 2 GB for 1024 x 1024).
+      cpu: 2048,
+      memoryLimitMiB: 4096,
       runtimePlatform: { cpuArchitecture: ecs.CpuArchitecture.X86_64, operatingSystemFamily: ecs.OperatingSystemFamily.LINUX },
       taskRole: role,
       volumes: [
