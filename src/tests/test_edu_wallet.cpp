@@ -5,7 +5,7 @@
  * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
  */
 
-/** @file test_edu_wallet.cpp EduCraft wallet mode: command gate, admission and loan step. */
+/** @file test_edu_wallet.cpp EduCraft wallet mode: command gate, admission, loan step and in-game deposit amounts. */
 
 #include "../stdafx.h"
 
@@ -15,6 +15,7 @@
 #include "../command_func.h"
 #include "../town_cmd.h"
 #include "../economy_type.h"
+#include "../edu_wallet_gui.h"
 
 #include "../safeguards.h"
 
@@ -114,4 +115,15 @@ TEST_CASE("LOAN_INTERVAL - the pilot max loan is exactly four steps")
 {
 	CHECK(LOAN_INTERVAL == 75000);
 	CHECK(4 * LOAN_INTERVAL == 300000);
+}
+
+TEST_CASE("EduDepositKc - one diamond is 61 500 Kč, tenths exact")
+{
+	CHECK(EduDepositKc(0) == "0");
+	CHECK(EduDepositKc(1) == "6 150");
+	CHECK(EduDepositKc(10) == "61 500");
+	CHECK(EduDepositKc(2000) == "12 300 000"); /* 200 diamonds = the max loan */
+	CHECK(EduFormatTenths(0) == "0,0");
+	CHECK(EduFormatTenths(123) == "12,3");
+	CHECK(EduFormatTenths(-5) == "-0,5");
 }

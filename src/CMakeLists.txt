@@ -171,6 +171,8 @@ add_files(
     economy_cmd.h
     economy_func.h
     economy_type.h
+    edu_wallet_gui.cpp
+    edu_wallet_gui.h
     effectvehicle.cpp
     effectvehicle_base.h
     effectvehicle_func.h

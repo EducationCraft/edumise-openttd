@@ -19,6 +19,8 @@
 
   var idToken = null;
   var jeSuperadmin = false;
+  var jeZak = false;
+  var hraZaka = false; // hraje za svou firmu (role pupil), ne jako divak cizi tridy
 
   // ponytail: brana je jen na strane klienta. Samotna hra pro jednoho hrace je verejny GPL
   // software bez dat zaka. Tridni server pusti jen s listkem z penezenky (overuje ho gateway,
@@ -85,7 +87,9 @@
   // Spolecna hra: ramecek se pripoji na listek z hashe, dalsi listky dostava zpravou.
   // Jmeno hrace z listku (contract §3.2), jinak vychozi; prazdne jmeno hra odmitne.
   function hrajSListkem(ziskejListek, prvni, jmeno) {
-    spust('#w=' + encodeURIComponent(prvni.url) + '&n=' + encodeURIComponent(prvni.playerName || jmeno));
+    // p=1: hra ukaze okno penezenky (vklad diamantu), jen zakovi ve vlastni tride (divak cizi tridy ne, D19).
+    hraZaka = jeZak && prvni.role === 'pupil';
+    spust('#w=' + encodeURIComponent(prvni.url) + '&n=' + encodeURIComponent(prvni.playerName || jmeno) + (hraZaka ? '&p=1' : ''));
     setInterval(async function () {
       try {
         var r = await ziskejListek();
@@ -95,6 +99,72 @@
       } catch (e) { /* dalsi pokus za 90 s */ }
     }, OBNOVA_LISTKU_MS);
   }
+
+  // Penezenka ve hre (src/edu_wallet_gui.cpp, menu Finance): hra se pta postMessage, token zustava
+  // v brane. Odpoved edumise-wallet = stav z GET /me + zprava pro zaka (contract §3.2).
+  var CHYBY_PENEZENKY = {
+    insufficient_funds: 'Nemáš dost diamantů.',
+    no_company: 'Nejdřív si ve hře založ firmu.',
+    game_closed: 'Hra je uzavřená.',
+    game_resetting: 'Svět se právě resetuje.',
+    wallet_not_found: 'Nejsi v pilotu Dopravy.',
+    busy: 'Server je vytížený. Zkus to za chvíli.'
+  };
+
+  function textChyby(r, vychozi) {
+    return CHYBY_PENEZENKY[r.error] || (r.status === 0 ? 'Nepodařilo se spojit se serverem.' : vychozi);
+  }
+
+  // zprava: text, nebo funkce (game z GET /me) → text. vklad = odpoved na vklad, jen ta ve hre vklad odemkne.
+  async function posliStav(vklad, zprava) {
+    var r = await penezenka('GET', '/me').catch(function () { return { status: 0 }; });
+    var ok = r.status === 200 && !!r.data;
+    if (typeof zprava === 'function') zprava = zprava(ok ? r.data.game : null);
+    if (!hraEl.contentWindow) return;
+    hraEl.contentWindow.postMessage({
+      t: 'edumise-wallet',
+      walletTenths: ok ? r.data.walletTenths : -1,
+      hasCompany: ok && !!r.data.game && r.data.game.company !== null,
+      deposit: vklad,
+      message: zprava || (ok ? '' : textChyby(r, 'Peněženku se nepodařilo načíst.'))
+    }, location.origin);
+  }
+
+  // Jeden requestId na jeden zamer (contract §2.3, jako vytvorZamer v EduMise): po chybe site nebo 5xx
+  // zustava, takze opakovani tehoz vkladu ho neprovede dvakrat. Konecna je az odpoved 2xx/4xx.
+  var zamerVkladu = null;
+  var vkladBezi = false;
+
+  async function vlozDiamanty(desetiny) {
+    // Hra drzi vklad zamceny, dokud neprijde odpoved; tohle je pojistka proti druhemu soubeznemu.
+    if (vkladBezi) return;
+    vkladBezi = true;
+    var r = { status: 0 };
+    try {
+      if (!zamerVkladu || zamerVkladu.amountTenths !== desetiny) zamerVkladu = { requestId: crypto.randomUUID(), amountTenths: desetiny };
+      for (var pokus = 0; ; pokus++) {
+        r = await penezenka('POST', '/me/deposits', zamerVkladu).catch(function () { return { status: 0 }; });
+        if ((r.status !== 503 && r.status !== 0) || pokus >= 3) break;
+        await new Promise(function (dal) { setTimeout(dal, 1000 + Math.random() * 2000); });
+      }
+      if (r.status !== 0 && r.status < 500) zamerVkladu = null;
+    } finally {
+      vkladBezi = false;
+    }
+    if (r.status !== 200) { await posliStav(true, textChyby(r, 'Vklad se nepodařil. Zkus to znovu.')); return; }
+    var kc = (r.data.pounds * 41).toLocaleString('cs-CZ').replace(/\s/g, ' ');
+    await posliStav(true, function (hra) {
+      var bezi = hra && (hra.session === 'running' || hra.session === 'limit');
+      return 'Vklad ' + kc + (bezi ? ' Kč odeslán, ve hře se objeví za chvilku.' : ' Kč čeká na hodinu.');
+    });
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || e.source !== hraEl.contentWindow || !hraZaka) return;
+    var d = e.data;
+    if (d && d.t === 'edumise-wallet-get') posliStav(false, '');
+    if (d && d.t === 'edumise-deposit' && Number.isInteger(d.amountTenths) && d.amountTenths > 0) vlozDiamanty(d.amountTenths);
+  });
 
   // Deep link #s=<schoolId>&c=<classId>[&as=pupil&sid=<studentId>] (contract §6.4); jen UUID.
   function odkazZHashe() {
@@ -477,7 +547,7 @@
       return;
     }
     var c = claimy(idToken || '');
-    if (c['custom:student_id']) { zak(); return; }
+    if (c['custom:student_id']) { jeZak = true; zak(); return; }
     // Skupiny bez ohledu na velikost pismen, stejne jako penezenka (contract §1.2).
     var skupiny = (c['cognito:groups'] || []).map(function (g) { return String(g).toLowerCase(); });
     if (skupiny.some(function (g) { return UCITELSKE_SKUPINY.indexOf(g) !== -1; })) { ucitel(skupiny.indexOf('superadmin') !== -1); return; }

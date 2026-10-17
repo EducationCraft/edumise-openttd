@@ -19,10 +19,20 @@ if (eduWss) {
         try { return m ? decodeURIComponent(m[1]).trim() : ''; } catch (e) { return ''; }
     })() || 'Hráč';
     Module.preRun.push(function () { ENV.EDU_CLIENT_NAME = eduName; });
+    /* In-game wallet window (src/edu_wallet_gui.cpp, Finances menu): the game never holds the
+     * pupil's token. It asks the gate, which calls the wallet and answers with edumise-wallet.
+     * 0 = just the state, otherwise deposit this many tenths of a diamond. */
+    if (/[#&]p=1(&|$)/.test(location.hash)) Module.eduWallet = function (amountTenths) {
+        window.parent.postMessage(amountTenths > 0 ? { t: 'edumise-deposit', amountTenths: amountTenths } : { t: 'edumise-wallet-get' }, location.origin);
+    };
     window.addEventListener('message', function (e) {
         if (e.origin !== location.origin || e.source !== window.parent) return;
         var d = e.data;
         if (d && d.t === 'edumise-ticket' && typeof d.url === 'string' && EDU_WSS.test(d.url)) eduWss = d.url;
+        if (d && d.t === 'edumise-wallet' && Number.isInteger(d.walletTenths) && typeof d.message === 'string') {
+            Module.cwrap('em_openttd_edu_wallet', null, ['number', 'number', 'string'])(
+                Math.max(d.walletTenths, -1), (d.hasCompany ? 1 : 0) | (d.deposit ? 2 : 0), d.message.slice(0, 300));
+        }
     });
 }
 

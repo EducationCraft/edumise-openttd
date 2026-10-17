@@ -55,6 +55,19 @@ domain never sees it and cannot check it — a real lock would mean Lambda@Edge.
 holds no pupil data and is public GPL software, so the gate keeps pupils from wandering
 in, not an attacker out.
 
+**Deposit from inside the game.** A pupil opens *Finance → Vklad diamantů* in the game: a native
+window (`src/edu_wallet_gui.cpp`) shows the wallet balance, picks an amount with −10/−1/+1/+10/Vše
+(no text field, so touch devices need no keyboard) and shows what the company gets in Kč. The game
+never holds the token. It posts `edumise-wallet-get` / `edumise-deposit {amountTenths}` to the gate
+(`pre.js` → `window.parent`), the gate calls `GET /wallet/me` / `POST /wallet/me/deposits` (one
+`requestId` per click, `503 busy` retried with the same body) and answers
+`edumise-wallet {walletTenths, hasCompany, deposit, message}`. Both sides check origin and source.
+The gate sets `#p=1` only for a pupil playing in their own class (ticket role `pupil`), so mayors,
+watchers of another class and "Hrát za žáka" see no menu item. A deposit stays locked in the game
+until the answer to that deposit (`deposit: true`) comes back, also across closing the window; the
+gate runs one deposit at a time and keeps its `requestId` until a 2xx/4xx answer. The open window
+re-reads the state every 10 s. The money still arrives only as a wallet op through the GameScript.
+
 The origin `https://ottd.edumise.educraft.cz` must stay in `CorsHelper.ALLOWED_ORIGINS`
 (`rustometr-backend/public`), or the browser blocks the refresh call.
 
@@ -160,7 +173,9 @@ spending and goes to a human as `loaninit ok:false` instead of being refunded.
 | `src/table/settings/economy_settings.ini`, `src/settings_type.h`, `src/economy.cpp` | A7: `economy.edu_bankruptcy_hold` caps `months_of_bankruptcy` at 3, so an insolvent company is never offered for sale or removed. |
 | `src/tests/test_edu_wallet.cpp`, `src/tests/CMakeLists.txt` | Unit tests for the gate, admission and loan step. |
 | `src/settings.cpp` | Web build defaults to the tax GameScript (see above). |
-| `os/emscripten/pre.js` | §6.4: with `#w=<wss url>` the web client joins the class server `doprava:3979#255` (spectator) over the ticket URL, refreshed by the gate's `edumise-ticket` postMessage. |
+| `os/emscripten/pre.js` | §6.4: with `#w=<wss url>` the web client joins the class server `doprava:3979#255` (spectator) over the ticket URL, refreshed by the gate's `edumise-ticket` postMessage. With `#p=1` also the in-game wallet bridge (`Module.eduWallet`, `edumise-wallet` message). |
+| `src/edu_wallet_gui.{h,cpp}`, `src/CMakeLists.txt` | In-game wallet window (deposit diamonds, see "The gate"). New files, raw Czech strings, no language file change. |
+| `src/toolbar_gui.cpp`, `src/window_type.h`, `CMakeLists.txt` | Finances menu item "Vklad diamantů" (only when `Module.eduWallet` exists), `WindowClass::EduWallet`, export `_em_openttd_edu_wallet`. |
 | `src/table/settings/*.ini` (gui, locale, misc, old_gameopt, world) | Czech defaults: CZK, town names, language. |
 | `os/emscripten/*`, `CMakeLists.txt` | CSP-safe shell, Czech in the WASM bundle. |
 

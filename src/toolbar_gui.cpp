@@ -72,6 +72,7 @@
 #include "network/network.h"
 #include "network/network_gui.h"
 #include "network/network_func.h"
+#include "edu_wallet_gui.h"
 
 #include "table/strings.h"
 
@@ -162,6 +163,7 @@ static void PopupMainToolbarMenu(Window *w, WidgetID widget, const std::initiali
 static const int CTMN_CLIENT_LIST = MAX_COMPANIES; ///< Indicates the "all connected players" entry.
 static const int CTMN_SPECTATE = COMPANY_SPECTATOR.base(); ///< Indicates the "become spectator" entry.
 static const int CTMN_SPECTATOR = CompanyID::Invalid().base(); ///< Indicates that a window is being opened for the spectator.
+static const int CTMN_EDU_WALLET = MAX_COMPANIES + 1; ///< EduMise: the in-game wallet window.
 
 /**
  * Pop up a generic company list menu.
@@ -190,6 +192,10 @@ static void PopupMainCompanyToolbMenu(Window *w, WidgetID widget, CompanyMask gr
 
 		case WID_TN_GOAL:
 			list.push_back(MakeDropDownListStringItem(STR_GOALS_SPECTATOR, CTMN_SPECTATOR));
+			break;
+
+		case WID_TN_FINANCES:
+			if (EduWalletAvailable()) list.push_back(MakeDropDownListStringItem(std::string{"Vklad diamantů"}, CTMN_EDU_WALLET));
 			break;
 	}
 
@@ -577,6 +583,10 @@ static CallBackFunction ToolbarFinancesClick(Window *w)
  */
 static CallBackFunction MenuClickFinances(int index)
 {
+	if (index == CTMN_EDU_WALLET) {
+		ShowEduWalletWindow();
+		return CallBackFunction::None;
+	}
 	ShowCompanyFinances((CompanyID)index);
 	return CallBackFunction::None;
 }

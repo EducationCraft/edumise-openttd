@@ -743,6 +743,12 @@ enum class WindowClass : uint16_t {
 	 */
 	Help,
 
+	/**
+	 * EduMise Doprava in-game wallet window; %Window numbers:
+	 *   - 0 = #EduWalletWidgets
+	 */
+	EduWallet,
+
 	Invalid = 0xFFFF, ///< Invalid window.
 };
 
