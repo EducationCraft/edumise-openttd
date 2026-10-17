@@ -162,7 +162,7 @@ spending and goes to a human as `loaninit ok:false` instead of being refunded.
 
 | File | Why |
 |---|---|
-| `src/economy_type.h` | A1: `LOAN_INTERVAL = 75000`, so the max loan £300,000 (12 300 000 Kč) = 200 💎 is exactly 4 steps. Affects every build, single-player too. |
+| `src/economy_type.h` | A1: `LOAN_INTERVAL = 75000`, so the max loan £300,000 (12 300 000 Kč) is exactly 4 steps. Affects every build, single-player too. |
 | `src/table/settings/network_settings.ini`, `src/settings_type.h` | A2: `network.edu_wallet_mode` (server-only, not saved, default off). |
 | `src/network/network_edu.{h,cpp}`, `src/network/CMakeLists.txt` | A3/A5 logic: gated commands, admission map. New files, no upstream conflict. |
 | `src/network/network_server.cpp` | Hooks, each behind `edu_wallet_mode`: join forced to spectator (A5a), gated client commands dropped with a chat line (A3), moves only as admitted, with the company allow-list skipped (A5b), `CompanyControl New` only with a `new` admission (A5c), admission erased on disconnect. |

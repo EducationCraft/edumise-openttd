@@ -117,12 +117,12 @@ TEST_CASE("LOAN_INTERVAL - the pilot max loan is exactly four steps")
 	CHECK(4 * LOAN_INTERVAL == 300000);
 }
 
-TEST_CASE("EduDepositKc - one diamond is 61 500 Kč, tenths exact")
+TEST_CASE("EduDepositKc - one diamond is 250 100 Kč, tenths exact")
 {
 	CHECK(EduDepositKc(0) == "0");
-	CHECK(EduDepositKc(1) == "6 150");
-	CHECK(EduDepositKc(10) == "61 500");
-	CHECK(EduDepositKc(2000) == "12 300 000"); /* 200 diamonds = the max loan */
+	CHECK(EduDepositKc(1) == "25 010");
+	CHECK(EduDepositKc(10) == "250 100");
+	CHECK(EduDepositKc(2000) == "50 020 000"); /* 200 diamonds */
 	CHECK(EduFormatTenths(0) == "0,0");
 	CHECK(EduFormatTenths(123) == "12,3");
 	CHECK(EduFormatTenths(-5) == "-0,5");

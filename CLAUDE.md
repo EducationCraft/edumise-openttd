@@ -19,7 +19,9 @@ pred vetsi zmenou ji precti tam. Zavazna specifikace penez a protokolu: `educraf
   `.git` worktree ukazuje mimo → build nezna revizi a vznikne klient, ktery se k serveru nepripoji.
 - **Upstream diff minimalni** a kazdy hunk zapsany v `educraft/README.md` sekce „Upstream diff“.
   Vse EduCraft-specificke patri do `educraft/` a `bin/game/edumise_dane/`.
-- **D1:** `LOAN_INTERVAL = 75000`, `max_loan = 300000` = 4 kroky = 200 💎 = 12 300 000 Kč (krok 3 075 000 Kč = 50 💎). Plati pro
+- **D1:** 1 💎 = £6 100 = 250 100 Kč (od 2026-10-17, driv 61 500 Kč; `EDU_POUNDS_PER_TENTH = 610` v herni penezence,
+  wallet `MILLIPOUNDS_PER_TENTH = 610000`). `LOAN_INTERVAL = 75000`, `max_loan = 300000` = 4 kroky = 12 300 000 Kč
+  (≈ 49,2 💎; krok 3 075 000 Kč). Plati pro
   vsechny buildy vc. single-playeru.
 - **Penize jen exactly-once pres wallet ops.** Jedna sekvence `seq` na hru (D4), GS aplikuje jen
   `lastSeq + 1` a drzi `lastSeq` + ring vysledku v savu. `seq` se NIKDY neresetuje — ani pri resetu

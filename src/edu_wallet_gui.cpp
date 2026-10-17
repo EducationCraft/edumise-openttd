@@ -32,8 +32,8 @@
 
 #include "safeguards.h"
 
-/** Contract §7.2: one tenth of a diamond is exactly £150 in game, no remainder. */
-static constexpr int64_t EDU_POUNDS_PER_TENTH = 150;
+/** Contract §7.2: one tenth of a diamond is exactly £610 in game (1 💎 = 250 100 Kč), no remainder. */
+static constexpr int64_t EDU_POUNDS_PER_TENTH = 610;
 /** OpenTTD's CZK multiplier; Kč is what the game shows. */
 static constexpr int64_t EDU_CZK_PER_POUND = 41;
 /** A deposit without an answer for this long gets a "still working" note (it stays locked). */
