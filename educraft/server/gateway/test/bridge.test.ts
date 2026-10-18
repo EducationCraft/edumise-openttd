@@ -60,6 +60,32 @@ describe('boot hello (§4.5 steps 1–4, §4.6)', () => {
     expect(logs.some((l) => l.level === 'error' && l.extra?.error === 'rollback_refused')).toBe(true);
   });
 
+  it('hello stopped keeps paused: no session run, no ops, no saves; a later start runs on the next hello', async () => {
+    // 2026-10-18: a new task booted while the wallet showed `stopped` and ran unpaused.
+    w.setHello({ session: 'stopped' });
+    await b.attach(gs);
+    expect(b.phase).toBe('refused');
+    await run(30_000);
+    expect(gs.of('session')).toEqual([]);
+    expect(gs.of('op')).toEqual([]);
+    expect(w.of('POST', '/saved')).toEqual([]);
+    w.setHello({ session: 'running' }); // the teacher started the class: hello turns `starting` into `running`
+    await run(31_000);
+    expect(w.of('POST', '/hello')).toHaveLength(2);
+    expect(gs.of('session')).toEqual([{ t: 'session', run: true, sid: 'sid-1', months: 18 }]);
+    expect(b.phase).toBe('running');
+  });
+
+  it('a hello at the limit, or without session (older wallet), still starts the session', async () => {
+    w.setHello({ session: 'limit' });
+    await b.attach(gs);
+    expect(gs.of('session')).toEqual([{ t: 'session', run: true, sid: 'sid-1', months: 18 }]);
+    w.setHello({ session: undefined });
+    b.phase = 'boot';
+    await b.boot();
+    expect(gs.of('session')).toHaveLength(2);
+  });
+
   it('adopt anchors the map with a quiesced save before the session starts', async () => {
     gs.game = null;
     w.setHello({ adopt: true });
@@ -70,7 +96,7 @@ describe('boot hello (§4.5 steps 1–4, §4.6)', () => {
     expect(i('hold')).toBeLessThan(i('session'));
     expect(gs.game).toBe('c000000000001');
     expect(gs.rcons).toContain('save current');
-    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 0, final: false });
+    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 0, final: false, sessionId: 'sid-1' });
     expect(readFileSync(join(dir, 'save', 'current.seq'), 'utf8')).toBe('0');
   });
 
@@ -165,7 +191,7 @@ describe('world reset', () => {
     await b.attach(gs);
     expect(w.of('POST', '/hello')[0].body).toMatchObject({ gsGame: null, gsLastSeq: 0, resetId: 'r1' });
     expect(gs.of('adopt')).toEqual([{ t: 'adopt', game: 'c000000000001.r1', last: 40 }]);
-    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 40, final: false });
+    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 40, final: false, sessionId: 'sid-1' });
     expect(readFileSync(join(dir, 'save', 'current.seq'), 'utf8')).toBe('40');
     expect(readdirSync(dir)).not.toContain('reset-id');
     await run(2_000);
@@ -327,7 +353,7 @@ describe('saves (§4.5 steps 8, 9, 12)', () => {
     gs.last = 4;
     await run(5 * 60_000);
     expect(gs.rcons).toContain('save current');
-    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 4, final: false });
+    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 4, final: false, sessionId: 'sid-1' });
     expect(readFileSync(join(dir, 'save', 'current.seq'), 'utf8')).toBe('4');
   });
 
@@ -409,7 +435,7 @@ describe('saves (§4.5 steps 8, 9, 12)', () => {
     const snaps = readdirSync(join(dir, 'snapshots')).sort();
     expect(snaps).toHaveLength(2);
     expect(readFileSync(join(dir, 'snapshots', snaps.find((f) => f.endsWith('.seq'))!), 'utf8')).toBe('9');
-    expect(w.of('POST', '/saved').at(-1)!.body).toEqual({ lastSeq: 9, final: true });
+    expect(w.of('POST', '/saved').at(-1)!.body).toEqual({ lastSeq: 9, final: true, sessionId: 'sid-1' });
   });
 
   it('SIGTERM delivers pending op results before saved{final}', async () => {
@@ -424,7 +450,7 @@ describe('saves (§4.5 steps 8, 9, 12)', () => {
     await done;
     const order = w.calls.map((c) => `${c.method} ${c.path}`).filter((c) => c.startsWith('POST /ops/1') || c.startsWith('POST /saved'));
     expect(order).toEqual(['POST /ops/1/result', 'POST /ops/1/result', 'POST /saved']);
-    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 1, final: true });
+    expect(w.of('POST', '/saved')[0].body).toEqual({ lastSeq: 1, final: true, sessionId: 'sid-1' });
   });
 
   it('SIGTERM retries the final finance on 5xx, then reports saved{final}', async () => {
@@ -449,7 +475,7 @@ describe('saves (§4.5 steps 8, 9, 12)', () => {
     await done;
     expect(w.of('PUT', '/finance').filter((c) => c.body.final)).toHaveLength(5);
     expect(gs.rcons.at(-1)).toBe('save current');
-    expect(w.of('POST', '/saved').map((c) => c.body)).toEqual([{ lastSeq: 3, final: false }]);
+    expect(w.of('POST', '/saved').map((c) => c.body)).toEqual([{ lastSeq: 3, final: false, sessionId: 'sid-1' }]);
     expect(logs.some((l) => l.level === 'error' && l.msg.includes('final finance not delivered'))).toBe(true);
   });
 
@@ -480,7 +506,7 @@ describe('failure modes (§4.5 steps 10, 11)', () => {
     gs.alive = false;
     await run(41_000);
     expect(gs.rcons).toContain('pause');
-    expect(w.of('POST', '/session').map((c) => c.body)).toEqual([{ action: 'stop', reason: 'gs_dead' }]);
+    expect(w.of('POST', '/session').map((c) => c.body)).toEqual([{ action: 'stop', reason: 'gs_dead', sessionId: 'sid-1' }]);
     await run(10 * 60_000);
     expect(gs.rcons).not.toContain('save current');
     await b.shutdown();

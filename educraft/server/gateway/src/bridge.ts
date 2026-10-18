@@ -315,6 +315,14 @@ export class Bridge {
         rmSync(resetFile, { force: true });
         await this.save({ resume: false });
       }
+      if (d.session !== undefined && !['running', 'limit'].includes(d.session)) {
+        // A server outside a live session (a stop racing this boot, a manual ECS restart) keeps the game
+        // paused and hellos again: a start from the gate makes it `starting`, which the next hello runs.
+        this.phase = 'refused';
+        this.retryAt = Date.now() + T.refusedRetry;
+        this.log('warn', 'hello outside a live session; game stays paused', { session: d.session });
+        return;
+      }
       this.phase = 'running';
       this.lastPongAt = this.lastPingAt = this.lastSaveAt = Date.now();
       this.sendSession();
@@ -792,7 +800,7 @@ export class Bridge {
   private async postSaved(lastSeq: number, final: boolean, attempts = 5): Promise<boolean> {
     for (let i = 0; i < attempts; i++) {
       try {
-        const r = await this.wcall('POST', '/saved', { lastSeq, final });
+        const r = await this.wcall('POST', '/saved', { lastSeq, final, sessionId: this.sid });
         if (r.status === 200) return true;
         if (r.status < 500 && r.status !== 429) {
           this.log('error', 'POST /saved rejected', { status: r.status, error: r.body?.error });
@@ -807,7 +815,7 @@ export class Bridge {
     return false;
   }
 
-  private async postSession(body: { action: 'limit'; resumeSeq: number } | { action: 'stop'; reason: 'gs_dead' }): Promise<void> {
+  private async postSession(body: { action: 'limit'; resumeSeq: number } | { action: 'stop'; reason: 'gs_dead'; sessionId: string | null }): Promise<void> {
     for (let i = 0; i < 5; i++) {
       try {
         const r = await this.wcall('POST', '/session', body);
@@ -828,7 +836,7 @@ export class Bridge {
     this.phase = 'dead';
     this.log('error', 'GameScript silent for 30 s: pausing, no further saves');
     await this.rcon('pause').catch((e) => this.log('error', 'rcon pause failed', { err: String(e) }));
-    await this.postSession({ action: 'stop', reason: 'gs_dead' });
+    await this.postSession({ action: 'stop', reason: 'gs_dead', sessionId: this.sid }); // an older session's stop is ignored (§3.3)
   }
 
   // ---------------------------------------------------------------- SIGTERM (§4.5 step 12)
