@@ -64,7 +64,7 @@ std::string EduFormatTenths(int64_t tenths)
 	return tenths < 0 ? "-" + s : s;
 }
 
-/** Kč the company gets for a deposit, thousands separated by spaces: `50` → `"307 500"`. */
+/** Kč the company gets for a deposit, thousands separated by spaces: `50` → `"1 250 500"`. */
 std::string EduDepositKc(int64_t tenths)
 {
 	std::string digits = fmt::format("{}", tenths * EDU_POUNDS_PER_TENTH * EDU_CZK_PER_POUND);

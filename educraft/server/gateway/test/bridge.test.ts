@@ -74,6 +74,21 @@ describe('boot hello (§4.5 steps 1–4, §4.6)', () => {
     expect(readFileSync(join(dir, 'save', 'current.seq'), 'utf8')).toBe('0');
   });
 
+  it('the session window is the wallet\'s sessionMonths (36), also after a teacher resume', async () => {
+    w.setHello({ sessionMonths: 36 });
+    await b.attach(gs);
+    expect(gs.of('session')).toEqual([{ t: 'session', run: true, sid: 'sid-1', months: 36 }]);
+    w.resumeSeq = 1;
+    await run(5_000);
+    expect(gs.of('session').at(-1)).toEqual({ t: 'session', run: true, sid: 'sid-1.r1', months: 36 });
+  });
+
+  it('a wallet hello without sessionMonths falls back to 18 months', async () => {
+    w.setHello({ sessionMonths: undefined });
+    await b.attach(gs);
+    expect(gs.of('session')).toEqual([{ t: 'session', run: true, sid: 'sid-1', months: 18 }]);
+  });
+
   it('clears the bindings the wallet returns in unbind', async () => {
     gs.co = [[3, 2]];
     w.setHello({ unbind: [3] });

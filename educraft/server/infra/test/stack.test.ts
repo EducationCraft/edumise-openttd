@@ -1,6 +1,7 @@
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
+import games from '../games.json';
 import { DopravaStack } from '../lib/doprava-stack';
 
 const KEY = 'c3f0c9a1b2c4d';
@@ -92,6 +93,18 @@ describe('DopravaStack (contract §6.1)', () => {
   it('logs kept 90 days, no NAT gateway', () => {
     t.hasResourceProperties('AWS::Logs::LogGroup', { LogGroupName: `/ecs/edumise-doprava/${KEY}`, RetentionInDays: 90 });
     t.resourceCountIs('AWS::EC2::NatGateway', 0);
+  });
+
+  it('every game in games.json gets a stopped service with a 180 s health-check grace (big map load)', () => {
+    const keys = games.map((g) => g.gameKey);
+    expect(new Set(keys).size).toBe(keys.length);
+    const services = Object.values(synth(games).findResources('AWS::ECS::Service')).map((r: any) => r.Properties);
+    expect(services.map((p) => p.ServiceName).sort()).toEqual(keys.map((k) => `doprava-${k}`).sort());
+    for (const p of services) {
+      expect(p.DesiredCount).toBe(0);
+      expect(p.HealthCheckGracePeriodSeconds).toBe(180);
+      expect(p.DeploymentConfiguration).toMatchObject({ MinimumHealthyPercent: 0, MaximumPercent: 100 });
+    }
   });
 
   it('refuses an invalid game key', () => {

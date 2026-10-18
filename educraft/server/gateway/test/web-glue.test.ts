@@ -382,6 +382,46 @@ describe('brana.js', () => {
     expect(labels(els)).toEqual(['Zpět']);
   });
 
+  it('start progress: ~55 s from a save, ~180 s for a reset world; 90 % at the estimate, never 100 %', async () => {
+    const { els } = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: 'ZŠ Demo' }] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', canManage: true })] } } }),
+      [`POST /classes/${K1}/session`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
+      [`GET /classes/${K1}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
+    });
+    const progress = () => {
+      const [bar, text] = els.tridy.children[0].children;
+      return { value: Math.round(bar.value), text: text.textContent };
+    };
+    await vi.advanceTimersByTimeAsync(0);
+    await click(els, 'Spustit hru – 6.I');
+    await click(els, '45 minut');
+    expect(els.zprava.textContent).toBe('Načítá se uložený svět.');
+    expect(progress()).toEqual({ value: 0, text: '0 s z obvyklých ~55 s' });
+    await vi.advanceTimersByTimeAsync(27_500);
+    expect(progress()).toEqual({ value: 45, text: '28 s z obvyklých ~55 s' });
+    await vi.advanceTimersByTimeAsync(27_500);
+    expect(progress().value).toBe(90);
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    expect(progress().value).toBe(99); // 90 + 9·(1 − e^−t), rounded; the bar never reaches 100 by itself
+
+    const r = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+      'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: 'ZŠ Demo' }] } } }),
+      [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K2, className: '7.C', canManage: true, resetPending: true })] } } }),
+      [`POST /classes/${K2}/session`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
+      [`GET /classes/${K2}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await click(r.els, 'Spustit hru – 7.C');
+    await click(r.els, '45 minut');
+    expect(r.els.zprava.textContent).toBe('Vytváří se nový svět, chvíli to potrvá.');
+    const [bar, text] = r.els.tridy.children[0].children;
+    expect(text.textContent).toBe('0 s z obvyklých ~180 s');
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(Math.round(bar.value)).toBe(45);
+    expect(text.textContent).toBe('90 s z obvyklých ~180 s');
+  });
+
   it('superadmin: school picker → class → "Hrát za žáka" → a concrete pupil', async () => {
     const { els, tickets } = load(jwt({ 'cognito:groups': ['superadmin'] }), {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [
