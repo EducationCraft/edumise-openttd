@@ -4,7 +4,8 @@ Contract: `educraft-wallet/docs/CONTRACT.md` §4–§6 (part B). One Fargate tas
 started only for a lesson (`desiredCount` 1/0 from the wallet):
 
 ```
-browser WASM ──wss──▶ ALB :443 /g/<gameKey> ──▶ gateway:8080 ──tcp from 127.77.x.y──▶ openttd:3979
+browser WASM ──wss──▶ <gameKey>.ottd-server.edumise.educraft.cz:443 ──▶ gateway:443 (TLS) ──tcp from 127.77.x.y──▶ openttd:3979
+      (old path, kept until phase 2) ──▶ ALB :443 /g/<gameKey> ──▶ gateway:8080
                                                  gateway ──admin port (X25519, encrypted)──▶ openttd:3977
                                                  gateway ──https M2M + X-Game-Token──▶ api.educraft.cz/wallet/game/*
 ```
@@ -13,7 +14,7 @@ browser WASM ──wss──▶ ALB :443 /g/<gameKey> ──▶ gateway:8080 ─
 |---|---|
 | `Dockerfile`, `entrypoint.sh`, `openttd.cfg` | native dedicated OpenTTD from this checkout + OpenGFX + the `EduMise — daně` GameScript |
 | `gateway/` | Node 20: WSS proxy (tickets, loopback source IP per pupil), admin-port client, bridge to the wallet |
-| `infra/` | CDK: VPC (public, no NAT), cluster `edumise-doprava`, ALB, EFS, ECR, one service per `games.json` entry |
+| `infra/` | CDK: VPC (public, no NAT), cluster `edumise-doprava`, ALB, EFS, ECR, one service per `games.json` entry, TLS renewal Lambda (`infra/lambda/renew-cert.ts`) |
 | `it/` | local docker-compose run against the real server |
 
 ## Build and test
@@ -36,6 +37,7 @@ hash of the network revision is compared, and `build.sh` passes it in via `.ottd
 | `/edumise-doprava/prod/wallet-client-secret` | Cognito app client `edumise-doprava-bridge` secret |
 | `/edumise-doprava/prod/games/<gameKey>/game-token` | `hex(HMAC-SHA256(gameTokenMaster, "game:"+gameKey))` |
 | `/edumise-doprava/prod/games/<gameKey>/ticket-key` | `hex(HMAC-SHA256(ticketMaster, "ticket:"+gameKey))`; the gateway HMACs tickets with the hex-decoded bytes |
+| `/edumise-doprava/prod/tls/bundle` | `{"cert","key"}` PEM of the Let's Encrypt wildcard `*.ottd-server.edumise.educraft.cz`. Written only by Lambda `edumise-doprava-tls-renew`, never by hand. |
 
 Generate the admin key pair locally:
 
@@ -59,6 +61,34 @@ const s=x25519.utils.randomSecretKey(); console.log(Buffer.from(s).toString('hex
 
 Never run two tasks of one game: the service uses `minHealthyPercent 0 / maxHealthyPercent 100`,
 so a replacement stops the old task (and its SIGTERM save) before the new one starts.
+
+## Direct access (no ALB)
+
+The ALB cost a fixed ~$16–20/month for a few hours of lessons, so browsers connect straight to the
+class's task. Who may connect is unchanged: the gateway admits only wallet tickets, OpenTTD listens on
+`127.0.0.1` only, and the task security group opens nothing but 443 (and 8080 to the ALB until phase 2).
+
+- **Name.** At start the gateway UPSERTs `A <gameKey>.ottd-server.edumise.educraft.cz` (TTL 60, zone
+  `Z05772991Q99U0Y3XXBDS`) to its public IP from `checkip.amazonaws.com`. The task role may change only
+  that one record. A stopped task leaves the record pointing at a released IP: harmless, TLS fails
+  there and the wallet issues tickets only for a live session.
+- **TLS.** The gateway serves the same handler on :443 with `tls/bundle` (read once at start; a session
+  lasts ≤ 4 h). The image gives `node` `cap_net_bind_service`, it still runs as uid 1000.
+- **Certificate.** Lambda `edumise-doprava-tls-renew` runs daily at 03:00 UTC and renews when < 30 days
+  are left (LE DNS-01, TXT `_acme-challenge.ottd-server…` only). First run after deploy:
+  `aws lambda invoke --function-name edumise-doprava-tls-renew --region eu-central-1 /dev/stdout`
+  → `{"renewed":true,"daysLeft":89}`.
+- **Floods.** At most 300 sockets per listener (`MAX_CONNECTIONS`), WebSocket messages ≤ 1 MiB;
+  a socket without a valid ticket is closed right after the handshake (4401).
+- **Alarms → SNS `educraft-alerts`.** `edumise-doprava-tls-renew-failed` (renewal threw; 30 days of
+  daily retries before expiry) and `edumise-doprava-direct-access-failed` (a gateway logged
+  `direct access failed`: no bundle, :443 bind or DNS; that class can then only be joined via the ALB).
+- **Client.** The wallet issues `wss://<gameKey>.ottd-server.edumise.educraft.cz/g/<gameKey>?t=…`;
+  `pre.js` accepts that host as well as the ALB host. CSP `educraft-csp-game` needs
+  `wss://*.ottd-server.edumise.educraft.cz` in `connect-src`.
+- **Phase 2** (after a week of lessons without the alarm): drop the ALB, its listener, target groups and
+  the 8080 rule from `infra/lib/doprava-stack.ts`, delete the A alias `ottd-server.edumise.educraft.cz`
+  and the ACM cert; keep the old host in `pre.js` until the next client release.
 
 ## Deviations from the contract text
 

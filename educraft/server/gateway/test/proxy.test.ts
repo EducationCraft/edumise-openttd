@@ -1,10 +1,14 @@
 import net from 'node:net';
 import type http from 'node:http';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { Registry } from '../src/bridge';
-import { CLOSE_UNAUTHORIZED, LoopbackPool, createGateway } from '../src/proxy';
+import { CLOSE_UNAUTHORIZED, LoopbackPool, MAX_CONNECTIONS, createGateway } from '../src/proxy';
 import { TicketVerifier, signTicket, type Ticket } from '../src/ticket';
 
 const KEY = randomBytes(32);
@@ -142,3 +146,45 @@ describe('WSS → TCP proxy', () => {
     expect(String(err)).toMatch(/404/);
   });
 });
+
+describe('direct WSS (no ALB)', () => {
+  const servers: (net.Server | http.Server)[] = [];
+  afterEach(() => servers.splice(0).forEach((s) => s.close()));
+  const listen = (s: net.Server | http.Server) => {
+    servers.push(s);
+    return new Promise<number>((r) => s.listen(0, '127.0.0.1', () => r((s.address() as net.AddressInfo).port)));
+  };
+
+  it('serves the same tickets over TLS and shares loopback IPs with the ALB listener', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gw-tls-'));
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '1',
+      '-subj', '/CN=localhost', '-keyout', join(dir, 'k.pem'), '-out', join(dir, 'c.pem')], { stdio: 'ignore' });
+    const tls = { cert: readFileSync(join(dir, 'c.pem'), 'utf8'), key: readFileSync(join(dir, 'k.pem'), 'utf8') };
+    const peers: string[] = [];
+    const gamePort = await listen(net.createServer((sock) => { peers.push(sock.remoteAddress!); sock.on('data', (d) => sock.write(d)); }));
+    const now = Math.floor(Date.now() / 1000);
+    const cfg = {
+      gameKey: GAME, verifier: new TicketVerifier(KEY, GAME, now - 5), registry: new Map() as Registry,
+      gameHost: '127.0.0.1', gamePort, log: () => {}, pool: new LoopbackPool(),
+    };
+    const plain = createGateway(cfg);
+    const direct = createGateway(cfg, tls);
+    expect(direct.maxConnections).toBe(MAX_CONNECTIONS);
+    const [p1, p2] = [await listen(plain), await listen(direct)];
+    const open = async (u: string) => {
+      const ws = new WebSocket(`${u}/g/${GAME}?t=${signTicket(KEY, t({ iat: now, exp: now + 120 }))}`, 'binary', { rejectUnauthorized: false });
+      await new Promise((r) => ws.on('open', r));
+      ws.send(Buffer.from('x'));
+      await new Promise((r) => ws.once('message', r));
+      return ws;
+    };
+    const a = await open(`ws://127.0.0.1:${p1}`);
+    const b = await open(`wss://127.0.0.1:${p2}`);
+    expect(peers).toEqual(['127.77.0.1', '127.77.0.2']);
+    a.close();
+    b.close();
+    // Plain HTTP on the TLS port is refused, so nothing reaches the game unencrypted.
+    await expect(fetch(`http://127.0.0.1:${p2}/healthz`)).rejects.toThrow();
+  });
+});
+

@@ -45,6 +45,13 @@ describe('pre.js', () => {
     expect(ctx.Module.websocket.url('doprava', 3979, 'tcp')).toBe(next);
   });
 
+  it('accepts the direct per-class host but no other subdomain', () => {
+    const direct = WSS.replace('wss://', 'wss://c3f0c9a1b2c4d.');
+    expect(load('#w=' + encodeURIComponent(direct)).ctx.Module.websocket.url('doprava', 3979, 'tcp')).toBe(direct);
+    for (const bad of ['wss://evil.ottd-server.edumise.educraft.cz', 'wss://c3f0c9a1b2c4d.ottd-server.edumise.educraft.cz.evil.example'])
+      expect(load('#w=' + encodeURIComponent(WSS.replace('wss://ottd-server.edumise.educraft.cz', bad))).ctx.Module.websocket.url('doprava', 3979, 'tcp')).toBe('wss://');
+  });
+
   it('passes #n (or "Hráč") as EDU_CLIENT_NAME in preRun so the join never has an empty name', () => {
     const run = (hash: string) => {
       const pre: (() => void)[] = [];

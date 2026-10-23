@@ -12,6 +12,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@aws-sdk/client-route-53": "^3.1156.0",
     "@aws-sdk/client-ssm": "^3.1141.0",
     "@noble/ciphers": "^2.4.0",
     "@noble/curves": "^2.4.0",

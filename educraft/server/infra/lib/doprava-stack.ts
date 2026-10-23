@@ -2,16 +2,26 @@
  * EduMise Doprava game servers (contract §6.1): one Fargate service per class game,
  * desiredCount 0 until the wallet starts a session (ecs:UpdateService, §6.6).
  * Shared: VPC (public subnets, no NAT), cluster, ALB with a path rule per game, EFS, ECR.
+ * Direct access (no ALB): each gateway also serves WSS on :443 as <gameKey>.DIRECT_DOMAIN with a
+ * Let's Encrypt wildcard that a daily Lambda keeps in SSM (lambda/renew-cert.ts).
  */
+import * as path from 'node:path';
 import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as efs from 'aws-cdk-lib/aws-efs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
 
 export interface Game {
@@ -31,6 +41,12 @@ export interface DopravaProps extends StackProps {
 }
 
 const SECRETS_PREFIX = '/edumise-doprava/prod';
+/** <gameKey>.DIRECT_DOMAIN → the task's public IP, written by the gateway itself. */
+export const DIRECT_DOMAIN = 'ottd-server.edumise.educraft.cz';
+/** Route53 zone educraft.cz. */
+export const HOSTED_ZONE_ID = 'Z05772991Q99U0Y3XXBDS';
+const TLS_PARAM = `${SECRETS_PREFIX}/tls/bundle`;
+const METRICS_NS = 'EduMiseDoprava';
 export const GAME_KEY_RE = /^c[0-9a-f]{12}$/;
 
 export class DopravaStack extends Stack {
@@ -64,6 +80,8 @@ export class DopravaStack extends Stack {
       description: 'Game tasks: only the ALB may reach the gateway',
     });
     taskSg.addIngressRule(albSg, ec2.Port.tcp(8080), 'gateway from the ALB');
+    // Only the gateway listens on 443; it admits nobody without a wallet ticket (proxy.ts).
+    taskSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'direct WSS from browsers');
 
     const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
       loadBalancerName: 'edumise-doprava',
@@ -114,10 +132,79 @@ export class DopravaStack extends Stack {
       }),
     );
 
+    const alerts = sns.Topic.fromTopicArn(this, 'Alerts', `arn:aws:sns:${this.region}:${this.account}:educraft-alerts`);
+    this.tlsRenewal(alerts);
+    new cloudwatch.Alarm(this, 'DirectAccessFailedAlarm', {
+      alarmName: 'edumise-doprava-direct-access-failed',
+      alarmDescription: 'A class gateway could not set up direct WSS (TLS bundle or DNS); pupils cannot join it without the ALB.',
+      metric: new cloudwatch.Metric({ namespace: METRICS_NS, metricName: 'DirectAccessFailed', statistic: 'Sum', period: Duration.minutes(5) }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(new cwActions.SnsAction(alerts));
+
     props.games.forEach((g, i) => {
       if (!GAME_KEY_RE.test(g.gameKey)) throw new Error(`invalid gameKey ${g.gameKey}`);
       this.game(g.gameKey, i + 1, { vpc, cluster, taskSg, listener, fs, serverRepo, gatewayRepo, props });
     });
+  }
+
+  private tlsRenewal(alerts: sns.ITopic): void {
+    const fn = new nodejs.NodejsFunction(this, 'TlsRenew', {
+      functionName: 'edumise-doprava-tls-renew',
+      entry: path.join(__dirname, '../lambda/renew-cert.ts'),
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: Duration.minutes(5),
+      memorySize: 256,
+      environment: { DOMAIN: DIRECT_DOMAIN, HOSTED_ZONE_ID, PARAM: TLS_PARAM },
+      logGroup: new logs.LogGroup(this, 'TlsRenewLogs', {
+        logGroupName: '/aws/lambda/edumise-doprava-tls-renew',
+        retention: logs.RetentionDays.THREE_MONTHS,
+        removalPolicy: RemovalPolicy.RETAIN,
+      }),
+    });
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['route53:ChangeResourceRecordSets'],
+        resources: [`arn:aws:route53:::hostedzone/${HOSTED_ZONE_ID}`],
+        conditions: {
+          'ForAllValues:StringEquals': {
+            'route53:ChangeResourceRecordSetsNormalizedRecordNames': [`_acme-challenge.${DIRECT_DOMAIN}`],
+            'route53:ChangeResourceRecordSetsRecordTypes': ['TXT'],
+            'route53:ChangeResourceRecordSetsActions': ['UPSERT', 'DELETE'],
+          },
+        },
+      }),
+    );
+    fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['route53:GetChange'], resources: ['arn:aws:route53:::change/*'] }));
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParameter', 'ssm:PutParameter'],
+        resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter${TLS_PARAM}`],
+      }),
+    );
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey'],
+        resources: ['*'],
+        conditions: { StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` } },
+      }),
+    );
+    new events.Rule(this, 'TlsRenewDaily', {
+      ruleName: 'edumise-doprava-tls-renew',
+      schedule: events.Schedule.cron({ minute: '0', hour: '3' }),
+      targets: [new targets.LambdaFunction(fn)],
+    });
+    new cloudwatch.Alarm(this, 'TlsRenewAlarm', {
+      alarmName: 'edumise-doprava-tls-renew-failed',
+      alarmDescription: 'The direct-WSS certificate did not renew; it expires within 30 days of the first failure.',
+      metric: fn.metricErrors({ period: Duration.days(1) }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(new cwActions.SnsAction(alerts));
   }
 
   private game(
@@ -151,7 +238,22 @@ export class DopravaStack extends Stack {
           param(`${SECRETS_PREFIX}/wallet-client-secret`),
           param(`${SECRETS_PREFIX}/admin-private-key`),
           param(`${SECRETS_PREFIX}/games/${key}/*`),
+          param(TLS_PARAM),
         ],
+      }),
+    );
+    // Its own A record and nothing else (gateway dns.ts).
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['route53:ChangeResourceRecordSets'],
+        resources: [`arn:aws:route53:::hostedzone/${HOSTED_ZONE_ID}`],
+        conditions: {
+          'ForAllValues:StringEquals': {
+            'route53:ChangeResourceRecordSetsNormalizedRecordNames': [`${key}.${DIRECT_DOMAIN}`],
+            'route53:ChangeResourceRecordSetsRecordTypes': ['A'],
+            'route53:ChangeResourceRecordSetsActions': ['UPSERT'],
+          },
+        },
       }),
     );
     role.addToPolicy(
@@ -173,6 +275,12 @@ export class DopravaStack extends Stack {
       logGroupName: `/ecs/edumise-doprava/${key}`,
       retention: logs.RetentionDays.THREE_MONTHS,
       removalPolicy: RemovalPolicy.RETAIN,
+    });
+    logGroup.addMetricFilter('DirectAccessFailed', {
+      filterPattern: logs.FilterPattern.stringValue('$.msg', '=', 'direct access failed'),
+      metricNamespace: METRICS_NS,
+      metricName: 'DirectAccessFailed',
+      metricValue: '1',
     });
 
     const task = new ecs.FargateTaskDefinition(scope, 'Task', {
@@ -207,9 +315,11 @@ export class DopravaStack extends Stack {
       image: ecs.ContainerImage.fromEcrRepository(s.gatewayRepo, s.props.imageTag),
       essential: true,
       stopTimeout: Duration.seconds(120),
-      portMappings: [{ containerPort: 8080 }],
+      portMappings: [{ containerPort: 8080 }, { containerPort: 443 }],
       environment: {
         GAME_KEY: key,
+        DIRECT_DOMAIN,
+        HOSTED_ZONE_ID,
         SECRETS_PREFIX,
         WALLET_BASE: s.props.walletBase,
         WALLET_CLIENT_ID: s.props.walletClientId,

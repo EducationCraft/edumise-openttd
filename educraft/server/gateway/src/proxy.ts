@@ -4,6 +4,7 @@
  * server reports back as the client's hostname in admin CLIENT_INFO.
  */
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { Log, Registry } from './bridge';
@@ -18,7 +19,12 @@ export interface ProxyConfig {
   log: Log;
   /** Max `spectator` connections per game (§6.3, env SPECTATOR_CAP); pupils and mayors are never capped. */
   spectatorCap?: number;
+  /** Shared when one game listens twice (ALB :8080 and direct :443), so loopback IPs never collide. */
+  pool?: LoopbackPool;
 }
+
+/** Open sockets per listener; a class is ≤ 15 teams of 3 + spectators + mayor, so this only stops floods. */
+export const MAX_CONNECTIONS = 300;
 
 export const CLOSE_UNAUTHORIZED = 4401;
 
@@ -46,19 +52,24 @@ export class LoopbackPool {
   }
 }
 
-export function createGateway(cfg: ProxyConfig): http.Server {
-  const pool = new LoopbackPool();
+/** Plain HTTP behind the ALB, or HTTPS (`tls`) when browsers connect to the task directly. */
+export function createGateway(cfg: ProxyConfig, tls?: { cert: string; key: string }): http.Server {
+  const pool = cfg.pool ?? new LoopbackPool();
   const path = `/g/${cfg.gameKey}`;
-  const server = http.createServer((req, res) => {
+  const onRequest: http.RequestListener = (req, res) => {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok');
       return;
     }
     res.writeHead(404).end();
-  });
-  // Emscripten's SOCKFS offers the "binary" subprotocol.
+  };
+  const server = tls ? https.createServer(tls, onRequest) : http.createServer(onRequest);
+  server.maxConnections = MAX_CONNECTIONS;
+  // Emscripten's SOCKFS offers the "binary" subprotocol. Client → server packets are small
+  // (OpenTTD caps a packet at 32 KB); only the map download is big, and it flows the other way.
   const wss = new WebSocketServer({
     noServer: true,
+    maxPayload: 1 << 20,
     handleProtocols: (protocols) => (protocols.has('binary') ? 'binary' : false),
   });
 

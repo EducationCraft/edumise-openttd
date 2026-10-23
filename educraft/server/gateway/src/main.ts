@@ -2,10 +2,12 @@
  * EduMise Doprava gateway: one process per game task with the WSS proxy and the bridge
  * (contract §4.1). Env: GAME_KEY, SECRETS_PREFIX, WALLET_BASE, WALLET_CLIENT_ID; secrets
  * come from SSM only (§1.2, §6.2).
+ * Optional DIRECT_DOMAIN + HOSTED_ZONE_ID: also serve WSS on :443 (TLS_PORT) as <gameKey>.<DIRECT_DOMAIN>.
  */
 import { AdminClient } from './admin';
 import { Bridge, type Log, type Registry } from './bridge';
-import { createGateway } from './proxy';
+import { publicIp, publishAddress } from './dns';
+import { LoopbackPool, createGateway } from './proxy';
 import { getSecret } from './ssm';
 import { TicketVerifier } from './ticket';
 import { HttpWallet } from './wallet';
@@ -46,7 +48,7 @@ async function main(): Promise<void> {
   const registry: Registry = new Map();
   const bridge = new Bridge(wallet, registry, env('DATA_DIR', '/data'), gameKey, log);
 
-  createGateway({
+  const proxyCfg = {
     gameKey,
     // The ticket key is stored hex-encoded (HMAC output, §6.4).
     verifier: new TicketVerifier(Buffer.from(ticketKey, 'hex'), gameKey, startedAtS),
@@ -55,7 +57,26 @@ async function main(): Promise<void> {
     gamePort: Number(env('OPENTTD_PORT', '3979')),
     log,
     spectatorCap: Number(env('SPECTATOR_CAP', '20')),
-  }).listen(Number(env('PORT', '8080')));
+    pool: new LoopbackPool(),
+  };
+  createGateway(proxyCfg).listen(Number(env('PORT', '8080')));
+
+  // Direct WSS without the ALB (DIRECT_DOMAIN unset = ALB only). A failure only costs the direct
+  // path, so it is logged (metric filter → alarm) and the game still starts.
+  const directDomain = process.env.DIRECT_DOMAIN;
+  if (directDomain) {
+    const name = `${gameKey}.${directDomain}`;
+    void (async () => {
+      const { cert, key } = JSON.parse(await getSecret(`${prefix}/tls/bundle`)) as { cert: string; key: string };
+      const server = createGateway(proxyCfg, { cert, key });
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject).listen(Number(env('TLS_PORT', '443')), resolve);
+      });
+      const ip = await publicIp();
+      await publishAddress(name, env('HOSTED_ZONE_ID'), ip);
+      log('info', 'direct access ready', { name, ip });
+    })().catch((e) => log('error', 'direct access failed', { name, err: String(e) }));
+  }
 
   const secret = Uint8Array.from(Buffer.from(adminKey, 'hex'));
   const adminPort = Number(env('ADMIN_PORT', '3977'));
