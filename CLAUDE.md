@@ -78,7 +78,7 @@ pred vetsi zmenou ji precti tam. Zavazna specifikace penez a protokolu: `educraf
 | `educraft/build-web.sh` | WASM build (Docker + emscripten, OpenGFX v balicku) |
 | `educraft/server/README.md` | architektura serveru, SSM, odchylky od kontraktu |
 | `educraft/server/gateway/` | Node 20: WSS proxy (`proxy.ts`), admin port (`admin.ts`), bridge na wallet (`bridge.ts`) |
-| `educraft/server/infra/` | CDK: cluster `edumise-doprava`, ALB, EFS, ECR, service per `games.json` |
+| `educraft/server/infra/` | CDK: cluster `edumise-doprava`, EFS, ECR, service per `games.json`, TLS renewal Lambda (no ALB since 2026-10-24) |
 | `educraft/server/{Dockerfile,entrypoint.sh,openttd.cfg}` | dedikovany server; `ini_version` v cfg je nutny |
 | `educraft/server/gs_harness.py`, `game_client.py`, `it/` | integracni testy GS + serveru |
 | `bin/game/edumise_dane/` | GameScript: `main.nut` (dane), `wallet.nut` (protokol penezenky), `info.nut` (settings) |
