@@ -5,7 +5,6 @@ started only for a lesson (`desiredCount` 1/0 from the wallet):
 
 ```
 browser WASM ──wss──▶ <gameKey>.ottd-server.edumise.educraft.cz:443 ──▶ gateway:443 (TLS) ──tcp from 127.77.x.y──▶ openttd:3979
-      (old path, kept until phase 2) ──▶ ALB :443 /g/<gameKey> ──▶ gateway:8080
                                                  gateway ──admin port (X25519, encrypted)──▶ openttd:3977
                                                  gateway ──https M2M + X-Game-Token──▶ api.educraft.cz/wallet/game/*
 ```
@@ -14,7 +13,7 @@ browser WASM ──wss──▶ <gameKey>.ottd-server.edumise.educraft.cz:443 �
 |---|---|
 | `Dockerfile`, `entrypoint.sh`, `openttd.cfg` | native dedicated OpenTTD from this checkout + OpenGFX + the `EduMise — daně` GameScript |
 | `gateway/` | Node 20: WSS proxy (tickets, loopback source IP per pupil), admin-port client, bridge to the wallet |
-| `infra/` | CDK: VPC (public, no NAT), cluster `edumise-doprava`, ALB, EFS, ECR, one service per `games.json` entry, TLS renewal Lambda (`infra/lambda/renew-cert.ts`) |
+| `infra/` | CDK: VPC (public, no NAT), cluster `edumise-doprava`, EFS, ECR, one service per `games.json` entry, TLS renewal Lambda (`infra/lambda/renew-cert.ts`) |
 | `it/` | local docker-compose run against the real server |
 
 ## Build and test
@@ -48,14 +47,13 @@ const s=x25519.utils.randomSecretKey(); console.log(Buffer.from(s).toString('hex
 
 ## Deploy (handover — not executed)
 
-1. ACM certificate `ottd-server.edumise.educraft.cz` in **eu-central-1** (DNS validation). The CloudFront
-   `*.edumise` cert is in us-east-1 and cannot be used by the ALB.
+1. TLS: no ACM certificate; the renewal Lambda puts the wildcard into SSM `tls/bundle` (see below).
 2. Put the SSM parameters above (per game after the wallet enrolled the class).
 3. Push both images to ECR `edumise-doprava-server` / `edumise-doprava-gateway` with the SHA tag.
 4. Add the class to `infra/games.json` (`{"gameKey": "c<12 hex of classId>"}`, value from the wallet), then
-   `cdk deploy -c imageTag=<sha> -c certificateArn=<arn> -c adminPublicKey=<hex> -c walletClientId=<id>`.
-5. DNS: `ottd-server.edumise.educraft.cz` → the ALB (alias / CNAME to the `AlbDns` output of the stack).
-6. CSP `educraft-csp-game` (CloudFront `E14AEJ36SUV76M`): `connect-src 'self' https://api.educraft.cz wss://ottd-server.edumise.educraft.cz`.
+   `cdk deploy -c imageTag=<sha> -c adminPublicKey=<hex> -c walletClientId=<id> -c walletBase=<url>`.
+5. DNS: nothing to do; each gateway writes its own `<gameKey>.ottd-server…` A record.
+6. CSP `educraft-csp-game` (CloudFront `E14AEJ36SUV76M`): `connect-src 'self' https://api.educraft.cz wss://*.ottd-server.edumise.educraft.cz`.
 7. Wallet side (§6.6): `ecs:UpdateService` / `ecs:DescribeServices` on `service/edumise-doprava/doprava-*`.
 8. Rebuild and redeploy the WASM client from the same SHA (`educraft/build-web.sh`).
 
@@ -66,7 +64,7 @@ so a replacement stops the old task (and its SIGTERM save) before the new one st
 
 The ALB cost a fixed ~$16–20/month for a few hours of lessons, so browsers connect straight to the
 class's task. Who may connect is unchanged: the gateway admits only wallet tickets, OpenTTD listens on
-`127.0.0.1` only, and the task security group opens nothing but 443 (and 8080 to the ALB until phase 2).
+`127.0.0.1` only, and the task security group opens nothing but 443.
 
 - **Name.** At start the gateway UPSERTs `A <gameKey>.ottd-server.edumise.educraft.cz` (TTL 60, zone
   `Z05772991Q99U0Y3XXBDS`) to its public IP from `checkip.amazonaws.com`. The task role may change only
@@ -82,13 +80,15 @@ class's task. Who may connect is unchanged: the gateway admits only wallet ticke
   a socket without a valid ticket is closed right after the handshake (4401).
 - **Alarms → SNS `educraft-alerts`.** `edumise-doprava-tls-renew-failed` (renewal threw; 30 days of
   daily retries before expiry) and `edumise-doprava-direct-access-failed` (a gateway logged
-  `direct access failed`: no bundle, :443 bind or DNS; that class can then only be joined via the ALB).
+  `direct access failed`: no bundle, :443 bind or DNS; nobody can join that class until it is fixed).
 - **Client.** The wallet issues `wss://<gameKey>.ottd-server.edumise.educraft.cz/g/<gameKey>?t=…`;
-  `pre.js` accepts that host as well as the ALB host. CSP `educraft-csp-game` needs
+  `pre.js` still accepts the old ALB host; drop it at the next client release. CSP `educraft-csp-game` needs
   `wss://*.ottd-server.edumise.educraft.cz` in `connect-src`.
-- **Phase 2** (after a week of lessons without the alarm): drop the ALB, its listener, target groups and
-  the 8080 rule from `infra/lib/doprava-stack.ts`, delete the A alias `ottd-server.edumise.educraft.cz`
-  and the ACM cert; keep the old host in `pre.js` until the next client release.
+- **ALB removed 2026-10-24** (stack, A alias `ottd-server.edumise.educraft.cz`, ACM cert). It took two
+  deploys: CloudFormation does not detach target groups from an ECS service, so a task definition without
+  8080 is rejected while the service still references one; after the ALB went the stale references were
+  cleared with `aws ecs update-service --load-balancers '[]'` (desiredCount untouched).
+  The gateway still listens on plain 8080 inside the task; no SG rule reaches it.
 
 ## Deviations from the contract text
 
