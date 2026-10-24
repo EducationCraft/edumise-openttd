@@ -11,7 +11,6 @@ const synth = (games = [{ gameKey: KEY }]) =>
       env: { account: '111111111111', region: 'eu-central-1' },
       games,
       imageTag: 'abc123',
-      certificateArn: 'arn:aws:acm:eu-central-1:111111111111:certificate/x',
       adminPublicKey: 'ab'.repeat(32),
       walletClientId: 'client',
       walletBase: 'https://api.educraft.cz/wallet',
@@ -40,7 +39,7 @@ describe('DopravaStack (contract §6.1)', () => {
         Match.objectLike({
           Name: 'gateway',
           StopTimeout: 120,
-          PortMappings: [Match.objectLike({ ContainerPort: 8080 }), Match.objectLike({ ContainerPort: 443 })],
+          PortMappings: [Match.objectLike({ ContainerPort: 443 })],
           DependsOn: [{ ContainerName: 'openttd', Condition: 'START' }],
           Environment: Match.arrayWith([{ Name: 'GAME_KEY', Value: KEY }, { Name: 'SECRETS_PREFIX', Value: '/edumise-doprava/prod' }]),
         }),
@@ -61,23 +60,11 @@ describe('DopravaStack (contract §6.1)', () => {
     expect(task).not.toMatch(/games\/\*/);
   });
 
-  it('ALB routes /g/<gameKey> to the game and 404s the rest', () => {
-    t.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
-      Conditions: [{ Field: 'path-pattern', PathPatternConfig: { Values: [`/g/${KEY}`, `/g/${KEY}/*`] } }],
-    });
-    t.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
-      Name: `edm-${KEY}`,
-      HealthCheckPath: '/healthz',
-      TargetType: 'ip',
-    });
-    t.hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
-      Name: 'edumise-doprava',
-      LoadBalancerAttributes: Match.arrayWith([{ Key: 'idle_timeout.timeout_seconds', Value: '300' }]),
-    });
-    t.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
-      Port: 443,
-      DefaultActions: [Match.objectLike({ Type: 'fixed-response', FixedResponseConfig: Match.objectLike({ StatusCode: '404' }) })],
-    });
+  it('no load balancer: browsers reach the gateway directly on 443 only', () => {
+    expect(Object.keys(t.findResources('AWS::ElasticLoadBalancingV2::LoadBalancer'))).toHaveLength(0);
+    expect(Object.keys(t.findResources('AWS::ElasticLoadBalancingV2::TargetGroup'))).toHaveLength(0);
+    const ingress = JSON.stringify(t.findResources('AWS::EC2::SecurityGroup'));
+    expect(ingress).not.toContain('"FromPort":8080');
   });
 
   it('EFS: no anonymous mounts, TLS only, access points only', () => {
@@ -102,7 +89,6 @@ describe('DopravaStack (contract §6.1)', () => {
     expect(services.map((p) => p.ServiceName).sort()).toEqual(keys.map((k) => `doprava-${k}`).sort());
     for (const p of services) {
       expect(p.DesiredCount).toBe(0);
-      expect(p.HealthCheckGracePeriodSeconds).toBe(180);
       expect(p.DeploymentConfiguration).toMatchObject({ MinimumHealthyPercent: 0, MaximumPercent: 100 });
     }
   });
@@ -116,7 +102,7 @@ describe('DopravaStack (contract §6.1)', () => {
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({
           Name: 'gateway',
-          PortMappings: [Match.objectLike({ ContainerPort: 8080 }), Match.objectLike({ ContainerPort: 443 })],
+          PortMappings: [Match.objectLike({ ContainerPort: 443 })],
           Environment: Match.arrayWith([
             { Name: 'DIRECT_DOMAIN', Value: DIRECT_DOMAIN },
             { Name: 'HOSTED_ZONE_ID', Value: HOSTED_ZONE_ID },

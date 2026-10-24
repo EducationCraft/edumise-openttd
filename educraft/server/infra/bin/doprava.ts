@@ -12,10 +12,9 @@ const ctx = (k: string): string => {
 
 new DopravaStack(app, 'EdumiseDopravaStack', {
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: 'eu-central-1' },
-  description: 'EduMise Doprava — per-class OpenTTD game servers (Fargate + ALB + EFS)',
+  description: 'EduMise Doprava — per-class OpenTTD game servers (Fargate + EFS, direct WSS)',
   games,
   imageTag: ctx('imageTag'),
-  certificateArn: ctx('certificateArn'),
   adminPublicKey: ctx('adminPublicKey'),
   walletClientId: ctx('walletClientId'),
   walletBase: ctx('walletBase'),

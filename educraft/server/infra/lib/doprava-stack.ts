@@ -1,20 +1,18 @@
 /**
  * EduMise Doprava game servers (contract §6.1): one Fargate service per class game,
  * desiredCount 0 until the wallet starts a session (ecs:UpdateService, §6.6).
- * Shared: VPC (public subnets, no NAT), cluster, ALB with a path rule per game, EFS, ECR.
- * Direct access (no ALB): each gateway also serves WSS on :443 as <gameKey>.DIRECT_DOMAIN with a
- * Let's Encrypt wildcard that a daily Lambda keeps in SSM (lambda/renew-cert.ts).
+ * Shared: VPC (public subnets, no NAT), cluster, EFS, ECR. No load balancer: each gateway serves
+ * WSS on :443 as <gameKey>.DIRECT_DOMAIN with a Let's Encrypt wildcard that a daily Lambda keeps
+ * in SSM (lambda/renew-cert.ts).
  */
 import * as path from 'node:path';
-import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
-import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import { Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as efs from 'aws-cdk-lib/aws-efs';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -32,8 +30,6 @@ export interface DopravaProps extends StackProps {
   games: Game[];
   /** edumise-openttd git SHA; must equal the SHA of the deployed WASM client. */
   imageTag: string;
-  /** ACM cert for ottd-server.edumise.educraft.cz in eu-central-1 (handover, §8 B). */
-  certificateArn: string;
   /** X25519 public key of the bridge (hex); the private half is SSM admin-private-key. */
   adminPublicKey: string;
   walletClientId: string;
@@ -72,33 +68,13 @@ export class DopravaStack extends Stack {
 
     const cluster = new ecs.Cluster(this, 'Cluster', { clusterName: 'edumise-doprava', vpc });
 
-    const albSg = new ec2.SecurityGroup(this, 'AlbSg', { vpc, description: 'edumise-doprava ALB' });
-    albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'HTTPS / WSS from browsers');
     const taskSg = new ec2.SecurityGroup(this, 'TaskSg', {
       vpc,
       securityGroupName: 'edumise-doprava-task',
-      description: 'Game tasks: only the ALB may reach the gateway',
+      description: 'Game tasks: only the gateway on 443 is reachable',
     });
-    taskSg.addIngressRule(albSg, ec2.Port.tcp(8080), 'gateway from the ALB');
     // Only the gateway listens on 443; it admits nobody without a wallet ticket (proxy.ts).
     taskSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'direct WSS from browsers');
-
-    const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
-      loadBalancerName: 'edumise-doprava',
-      vpc,
-      internetFacing: true,
-      securityGroup: albSg,
-      idleTimeout: Duration.seconds(300),
-    });
-    const listener = alb.addListener('Https', {
-      port: 443,
-      certificates: [acm.Certificate.fromCertificateArn(this, 'Cert', props.certificateArn)],
-      sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS,
-      defaultAction: elbv2.ListenerAction.fixedResponse(404, { contentType: 'text/plain', messageBody: 'not found' }),
-      open: false,
-    });
-
-    new CfnOutput(this, 'AlbDns', { value: alb.loadBalancerDnsName, description: 'ottd-server.edumise.educraft.cz → this' });
 
     const fsSg = new ec2.SecurityGroup(this, 'EfsSg', { vpc, description: 'edumise-doprava EFS' });
     fsSg.addIngressRule(taskSg, ec2.Port.tcp(2049), 'NFS from game tasks');
@@ -144,9 +120,9 @@ export class DopravaStack extends Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(new cwActions.SnsAction(alerts));
 
-    props.games.forEach((g, i) => {
+    props.games.forEach((g) => {
       if (!GAME_KEY_RE.test(g.gameKey)) throw new Error(`invalid gameKey ${g.gameKey}`);
-      this.game(g.gameKey, i + 1, { vpc, cluster, taskSg, listener, fs, serverRepo, gatewayRepo, props });
+      this.game(g.gameKey, { cluster, taskSg, fs, serverRepo, gatewayRepo, props });
     });
   }
 
@@ -209,12 +185,9 @@ export class DopravaStack extends Stack {
 
   private game(
     key: string,
-    priority: number,
     s: {
-      vpc: ec2.IVpc;
       cluster: ecs.Cluster;
       taskSg: ec2.SecurityGroup;
-      listener: elbv2.ApplicationListener;
       fs: efs.FileSystem;
       serverRepo: ecr.Repository;
       gatewayRepo: ecr.Repository;
@@ -315,7 +288,7 @@ export class DopravaStack extends Stack {
       image: ecs.ContainerImage.fromEcrRepository(s.gatewayRepo, s.props.imageTag),
       essential: true,
       stopTimeout: Duration.seconds(120),
-      portMappings: [{ containerPort: 8080 }, { containerPort: 443 }],
+      portMappings: [{ containerPort: 443 }],
       environment: {
         GAME_KEY: key,
         DIRECT_DOMAIN,
@@ -342,23 +315,6 @@ export class DopravaStack extends Stack {
       // Never two servers on one save: stop the old task before a new one starts.
       minHealthyPercent: 0,
       maxHealthyPercent: 100,
-      healthCheckGracePeriod: Duration.seconds(180),
-    });
-
-    const tg = new elbv2.ApplicationTargetGroup(scope, 'Tg', {
-      targetGroupName: `edm-${key}`,
-      vpc: s.vpc,
-      port: 8080,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      targetType: elbv2.TargetType.IP,
-      healthCheck: { path: '/healthz', healthyHttpCodes: '200' },
-      deregistrationDelay: Duration.seconds(30),
-      targets: [service.loadBalancerTarget({ containerName: 'gateway', containerPort: 8080 })],
-    });
-    s.listener.addTargetGroups(`Rule-${key}`, {
-      priority,
-      conditions: [elbv2.ListenerCondition.pathPatterns([`/g/${key}`, `/g/${key}/*`])],
-      targetGroups: [tg],
     });
   }
 }
