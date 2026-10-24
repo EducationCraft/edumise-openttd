@@ -55,6 +55,11 @@ domain never sees it and cannot check it — a real lock would mean Lambda@Edge.
 holds no pupil data and is public GPL software, so the gate keeps pupils from wandering
 in, not an attacker out.
 
+**Teams.** Each class the teacher manages has *Týmy – <class>*: one number field (1–15) per pupil from
+`GET /wallet/classes/<id>`, saved with `PUT /wallet/classes/<id>/slots` (every enrolled pupil exactly once,
+at most 3 per team, one `requestId` per intent). A class with more than 15 pupils needs pairs here;
+pupils without a team can only watch. Same rules as the EduMise teacher editor (`slotyZPrirazeni`).
+
 **Deposit from inside the game.** A pupil opens *Finance → Vklad diamantů* in the game: a native
 window (`src/edu_wallet_gui.cpp`) shows the wallet balance, picks an amount with −10/−1/+1/+10/Vše
 (no text field, so touch devices need no keyboard) and shows what the company gets in Kč. The game

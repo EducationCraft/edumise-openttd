@@ -74,7 +74,7 @@ pred vetsi zmenou ji precti tam. Zavazna specifikace penez a protokolu: `educraf
 | Cesta | Co |
 |---|---|
 | `educraft/README.md` | build webu, CSP, brana, deploy webu, **Upstream diff** |
-| `educraft/index.html`, `educraft/brana.js` | brana: refresh session, vyber tridy/role, listek, start/stop/reset hry |
+| `educraft/index.html`, `educraft/brana.js` | brana: refresh session, vyber tridy/role, listek, start/stop/reset hry, tymy (`PUT …/slots`) |
 | `educraft/build-web.sh` | WASM build (Docker + emscripten, OpenGFX v balicku) |
 | `educraft/server/README.md` | architektura serveru, SSM, odchylky od kontraktu |
 | `educraft/server/gateway/` | Node 20: WSS proxy (`proxy.ts`), admin port (`admin.ts`), bridge na wallet (`bridge.ts`) |

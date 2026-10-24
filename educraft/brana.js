@@ -470,6 +470,88 @@
     tridyEl.appendChild(tlacitko('Zpět', zpet));
   }
 
+  // Tymy tridy (D20, PUT …/slots nahrazuje cely seznam): kazdy zapsany zak prave jednou, 1–3 na tym,
+  // cisla 1–15 (= max_companies). Stejna pravidla jako editor v EduMise (slotyZPrirazeni).
+  var MAX_TYMU = 15;
+  var MAX_V_TYMU = 3;
+
+  async function tymy(h) {
+    var zpet = function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); };
+    chyba('');
+    oznam('Týmy – ' + h.className, 'Načítám žáky…');
+    vycisti();
+    var r = await penezenka('GET', '/classes/' + encodeURIComponent(h.classId) + '?schoolId=' + encodeURIComponent(h.schoolId))
+      .catch(function () { return { status: 0 }; });
+    if (r.status !== 200) {
+      oznam('Týmy – ' + h.className, '');
+      chyba(r.status === 403 ? 'Týmy této třídy nemůžete upravit.' : 'Žáky se nepodařilo načíst.');
+      tridyEl.appendChild(tlacitko('Zpět', zpet));
+      return;
+    }
+    var d = r.data;
+    // Zaklad jsou slots (obsahuji i zaky mimo ucitelův seznam), pupils jen doplni ty bez tymu.
+    var prirazeni = {};
+    (d.slots || []).forEach(function (s) { (s.studentIds || []).forEach(function (id) { prirazeni[id] = String(s.slot); }); });
+    var zaci = (d.pupils || []).slice().sort(function (a, b) { return (a.name || '').localeCompare(b.name || '', 'cs'); });
+    zaci.forEach(function (z) { if (!(z.studentId in prirazeni)) prirazeni[z.studentId] = ''; });
+    var skryti = Object.keys(prirazeni).length - zaci.length;
+    var bezTymu = zaci.filter(function (z) { return !prirazeni[z.studentId]; }).length;
+
+    oznam('Týmy – ' + h.className, 'Žáci se stejným číslem týmu (1–' + MAX_TYMU + ') hrají spolu jednu firmu, nejvýš '
+      + MAX_V_TYMU + ' v týmu.' + (bezTymu ? ' Bez týmu: ' + bezTymu + ' – ti se můžou jen dívat.' : ''));
+    vycisti();
+    if (BEZI.indexOf(d.session) !== -1) tridyEl.appendChild(popisek('Hra běží: přesunutý žák se musí znovu připojit. Jeho vklady zůstávají u původní firmy.'));
+    zaci.forEach(function (z) {
+      var radek = document.createElement('label');
+      radek.className = 'radek-tymu';
+      var jmeno = document.createElement('span');
+      jmeno.textContent = z.name || 'Žák';
+      var pole = document.createElement('input');
+      pole.type = 'number';
+      pole.inputMode = 'numeric';
+      pole.min = '1';
+      pole.max = String(MAX_TYMU);
+      pole.placeholder = '–';
+      pole.value = prirazeni[z.studentId];
+      pole.addEventListener('input', function () { prirazeni[z.studentId] = pole.value.trim(); });
+      radek.appendChild(jmeno);
+      radek.appendChild(pole);
+      tridyEl.appendChild(radek);
+    });
+    (d.slots || []).filter(function (s) { return s.company !== null && !(s.studentIds || []).length; }).forEach(function (s) {
+      tridyEl.appendChild(popisek('Tým ' + s.slot + ': ' + (s.companyName || 'firma bez jména') + ' (bez členů) – žák s tímto číslem firmu převezme.'));
+    });
+    if (skryti > 0) tridyEl.appendChild(popisek('Další žáci mimo váš seznam (' + skryti + ') zůstávají ve svých týmech.'));
+    var requestId = crypto.randomUUID();
+    var uloz = tlacitko('Uložit týmy', async function () {
+      chyba('');
+      var podleTymu = {};
+      for (var id in prirazeni) {
+        var n = Number(prirazeni[id]);
+        if (!Number.isInteger(n) || n < 1 || n > MAX_TYMU) { chyba('Každý žák musí mít číslo týmu 1 až ' + MAX_TYMU + '.'); return; }
+        (podleTymu[n] = podleTymu[n] || []).push(id);
+      }
+      for (var t in podleTymu) {
+        if (podleTymu[t].length > MAX_V_TYMU) { chyba('V týmu ' + t + ' jsou víc než ' + MAX_V_TYMU + ' žáci.'); return; }
+      }
+      var slots = Object.keys(podleTymu).map(function (t) { return { slot: Number(t), studentIds: podleTymu[t].sort() }; });
+      uloz.disabled = true;
+      // Jeden requestId na zamer: opakovani po vypadku site se neprovede dvakrat (contract §2.3).
+      var o = await penezenka('PUT', '/classes/' + encodeURIComponent(h.classId) + '/slots',
+        { schoolId: h.schoolId, requestId: requestId, slots: slots }).catch(function () { return { status: 0 }; });
+      uloz.disabled = false;
+      if (o.status === 200) { await tymy(h); zpravaEl.textContent = 'Týmy uloženy.'; return; }
+      if (o.status !== 0 && o.status < 500) requestId = crypto.randomUUID();
+      chyba(o.status === 403 ? 'Týmy této třídy nemůžete upravit.'
+        : o.error === 'game_resetting' ? 'Svět se právě resetuje, zkuste to za chvíli.'
+        : o.error === 'invalid_state' ? 'Tým, jehož firma už skončila, nejde měnit.'
+        : o.status === 400 ? 'Seznam žáků se mezitím změnil. Otevřete týmy znovu.'
+        : 'Týmy se nepodařilo uložit.');
+    });
+    tridyEl.appendChild(uloz);
+    tridyEl.appendChild(tlacitko('Zpět', zpet));
+  }
+
   function nazevSkoly(s) {
     return s.name || 'Škola ' + s.schoolId.slice(0, 8);
   }
@@ -501,6 +583,7 @@
             akceTridy(h, 'resume', { zakaz: 'Hru této třídy nemůžete pustit dál.', stav: 'Hra už nečeká na pokračování.', jine: 'Hru se nepodařilo pustit dál.' });
           }));
           tridyEl.appendChild(tlacitko('Ukončit hru – ' + h.className, function () { ukonciTridu(h); }));
+          tridyEl.appendChild(tlacitko('Týmy – ' + h.className, function () { tymy(h); }));
         }
       } else if (t.session === 'starting' || t.session === 'stopping') {
         tridyEl.appendChild(popisek(h.className + (t.session === 'starting' ? ' – hra se spouští' : ' – hra se ukončuje')));
@@ -508,6 +591,7 @@
         tridyEl.appendChild(tlacitko('Spustit hru – ' + h.className, function () { delkaHry(h); }));
         if (t.resetPending) tridyEl.appendChild(popisek(h.className + ' – nový svět čeká na spuštění'));
         else tridyEl.appendChild(tlacitko('Resetovat svět – ' + h.className, function () { resetujSvet(h); }));
+        tridyEl.appendChild(tlacitko('Týmy – ' + h.className, function () { tymy(h); }));
       } else {
         tridyEl.appendChild(popisek(h.className + (t.resetPending ? ' – nový svět čeká na spuštění' : ' – hra neběží')));
       }
