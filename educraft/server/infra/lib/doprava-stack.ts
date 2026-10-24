@@ -71,7 +71,8 @@ export class DopravaStack extends Stack {
     const taskSg = new ec2.SecurityGroup(this, 'TaskSg', {
       vpc,
       securityGroupName: 'edumise-doprava-task',
-      description: 'Game tasks: only the gateway on 443 is reachable',
+      // ponytail: description is stale (ALB gone) but changing it replaces the named SG.
+      description: 'Game tasks: only the ALB may reach the gateway',
     });
     // Only the gateway listens on 443; it admits nobody without a wallet ticket (proxy.ts).
     taskSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'direct WSS from browsers');
