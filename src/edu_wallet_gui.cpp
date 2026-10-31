@@ -183,6 +183,10 @@ struct EduWalletWindow : Window {
 					status = s.load_error;
 				} else if (status.empty() && s.wallet_tenths >= 0 && !s.has_company) {
 					status = "Nejdřív si ve hře založ firmu.";
+				} else if (status.empty() && s.has_company && s.wallet_tenths > 0 && this->amount_tenths == 0) {
+					/* The window opens at 0, so the deposit button is greyed out and pupils took it as broken.
+					 * Deliberately no pre-filled amount: a deposit can't be undone. */
+					status = "Vyber, kolik diamantů vložíš (+1, +10 nebo Vše).";
 				}
 				if (!status.empty()) {
 					ir.top = DrawStringMultiLine(ir, status, TextColour::Black) + WidgetDimensions::scaled.vsep_wide;
