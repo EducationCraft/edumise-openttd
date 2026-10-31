@@ -9,6 +9,72 @@
   // Listek je jednorazovy a plati 120 s; ramecek dostane cerstvy pred kazdym pripojenim.
   var OBNOVA_LISTKU_MS = 90 * 1000;
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  var BEZI = ['running', 'limit'];
+
+  // Druha mapa (educraft-wallet#1): trida, ktera se nevejde do 15 firem, ma i mapu B; kazda akce tridy
+  // (start, stop, prodlouzeni, reset) bezi nad obema. Bez maps[] (starsi penezenka) nebo s jednou mapou
+  // se brana chova presne jako driv.
+  function mapy(t) { return (t && t.maps) || []; }
+
+  function sMapou(text, mapa, dve) { return dve ? text + ' (mapa ' + mapa + ')' : text; }
+
+  // Stav tridy pro tlacitka: s jednou mapou session; se dvema bezi, kdyz bezi aspon jedna.
+  function stavTridy(t) {
+    var m = mapy(t);
+    if (m.length < 2) return t.session;
+    var s = m.map(function (x) { return x.session; });
+    return ['limit', 'running', 'starting', 'stopping'].filter(function (x) { return s.indexOf(x) !== -1; })[0] || 'stopped';
+  }
+
+  // Po startu: 'bezi' az bezi vsechny mapy, 'chyba' kdyz nektera spadla zpet na stopped, jinak null (cekat).
+  function vysledekStartu(stavy) {
+    if (stavy.indexOf('stopped') !== -1) return 'chyba';
+    return stavy.every(function (s) { return BEZI.indexOf(s) !== -1; }) ? 'bezi' : null;
+  }
+
+  // Zak se pripoji sam, kdyz ma prave jednu vlastni hodinu a krome ni bezi nanejvys sesterska mapa jeho tridy
+  // (own:false, jen ke sledovani). Jinak vybira.
+  function hodinaZaka(hodiny) {
+    var moje = hodiny.filter(function (h) { return h.own; });
+    if (moje.length !== 1) return null;
+    return hodiny.every(function (h) { return h === moje[0] || h.classId === moje[0].classId; }) ? moje[0] : null;
+  }
+
+  // Dve mapy jedne tridy se lisi v popisku, aby zak nevidel dve stejna tlacitka.
+  function popisHodiny(h, hodiny) {
+    var dve = hodiny.some(function (x) { return x !== h && x.classId === h.classId; });
+    return sMapou((h.own ? 'Hrát – ' : 'Dívat se – ') + h.className, h.map, dve);
+  }
+
+  var POPIS_STAVU = { running: 'běží', limit: 'čeká na pokračování', starting: 'spouští se', stopping: 'ukončuje se' };
+  function stavMapy(nazev, m) {
+    return nazev + ' – mapa ' + m.map + ': ' + (POPIS_STAVU[m.session] || 'neběží') + ', žáků ' + m.pupils
+      + (m.resetPending ? ', nový svět čeká na spuštění' : '');
+  }
+
+  // Chyba akce nad dvema mapami nese mapu, na ktere selhala (wallet {error, map, done}).
+  function uMapy(r, text) { return r.info && r.info.map ? 'Mapa ' + r.info.map + ': ' + text : text; }
+
+  var CHYBY_PRESUNU = {
+    pupil_has_company: 'Žák je v týmu, který už má firmu – přesunout ho nejde.',
+    pupil_has_deposits: 'Žák vložil diamanty do firmy na této mapě – přesunout ho nejde.',
+    game_resetting: 'Svět se právě resetuje, zkuste to za chvíli.',
+    game_closed: 'Hra je uzavřená.',
+    invalid_state: 'Hra se právě vyúčtovává.',
+    map_not_found: 'Druhá mapa neexistuje.',
+    wallet_not_found: 'Žák už není ve hře. Otevřete týmy znovu.',
+    not_found: 'Žák už není v této třídě. Otevřete týmy znovu.'
+  };
+  function textPresunu(r) {
+    return CHYBY_PRESUNU[r.error] || (r.status === 403 ? 'Žáky této třídy nemůžete přesouvat.' : 'Žáka se nepodařilo přesunout.');
+  }
+
+  // Ciste pomocne funkce pro node test (educraft/brana.test.js); v prohlizeci se nic neexportuje.
+  if (typeof module === 'object' && module.exports) {
+    module.exports = { stavTridy: stavTridy, vysledekStartu: vysledekStartu, hodinaZaka: hodinaZaka, popisHodiny: popisHodiny,
+      stavMapy: stavMapy, textPresunu: textPresunu, uMapy: uMapy };
+    return;
+  }
 
   var titulekEl = document.getElementById('titulek');
   var zpravaEl  = document.getElementById('zprava');
@@ -74,7 +140,7 @@
       body: telo === undefined ? undefined : JSON.stringify(telo)
     });
     var json = await odpoved.json().catch(function () { return {}; });
-    return { status: odpoved.status, data: json.data, error: json.error };
+    return { status: odpoved.status, data: json.data, error: json.error, info: json };
   }
 
   function spust(hash) {
@@ -237,9 +303,11 @@
     oznam('Hru teď nejde spustit.', 'Zkus to prosím za chvíli znovu.');
   }
 
-  function zakVeTride(classId) {
-    return vstup(function () { return penezenka('POST', '/me/game-ticket', { classId: classId }); }, 'Hráč',
-      function () { zakVeTride(classId); });
+  // gameKey jen pro cizi mapu (sesterska mapa sve tridy nebo jina trida = divak); vlastni mapu vybere penezenka.
+  function zakVeTride(classId, gameKey) {
+    var telo = gameKey ? { classId: classId, gameKey: gameKey } : { classId: classId };
+    return vstup(function () { return penezenka('POST', '/me/game-ticket', telo); }, 'Hráč',
+      function () { zakVeTride(classId, gameKey); });
   }
 
   // D19: zak hraje jen ve sve tride, ostatni bezici tridy skoly sleduje.
@@ -256,11 +324,12 @@
     }
     var hodiny = (r.status === 200 && r.data.sessions) || [];
     if (!hodiny.length) { cekejNaHodinu(function () { zak(true); }); return; }
-    if (hodiny.length === 1 && hodiny[0].own) { zakVeTride(hodiny[0].classId); return; }
+    var moje = hodinaZaka(hodiny);
+    if (moje) { zakVeTride(moje.classId); return; }
     oznam('Doprava', 'Vyber hodinu.');
     vycisti();
     hodiny.forEach(function (h) {
-      tridyEl.appendChild(tlacitko((h.own ? 'Hrát – ' : 'Dívat se – ') + h.className, function () { zakVeTride(h.classId); }));
+      tridyEl.appendChild(tlacitko(popisHodiny(h, hodiny), function () { zakVeTride(h.classId, h.own ? null : h.gameKey); }));
     });
   }
 
@@ -273,8 +342,10 @@
     return b;
   }
 
-  function tridniListek(schoolId, classId, studentId) {
+  // mapa jen u tridy se dvema mapami (starosta/divak na mape B); jako zak vzdy jeho vlastni mapa.
+  function tridniListek(schoolId, classId, studentId, mapa) {
     var telo = studentId ? { schoolId: schoolId, as: 'pupil', studentId: studentId } : { schoolId: schoolId };
+    if (mapa && !studentId) telo.map = mapa;
     return vstup(function () {
       return penezenka('POST', '/classes/' + encodeURIComponent(classId) + '/game-ticket', telo);
     }, studentId ? 'Hráč' : 'Starosta');
@@ -282,9 +353,12 @@
 
   // Superadmin: konkretni zapsany zak tridy (D22); vstoupi presne jako on.
   async function vyberZaka(h) {
-    var r = await penezenka('GET', '/classes/' + encodeURIComponent(h.classId) + '?schoolId=' + encodeURIComponent(h.schoolId))
-      .catch(function () { return { status: 0 }; });
-    var zaci = (r.status === 200 && r.data.pupils) || [];
+    var zaci = [];
+    for (var m of (h.mapy.length ? h.mapy : [null])) {
+      var r = await penezenka('GET', '/classes/' + encodeURIComponent(h.classId) + '?schoolId=' + encodeURIComponent(h.schoolId)
+        + (m ? '&map=' + m : '')).catch(function () { return { status: 0 }; });
+      ((r.status === 200 && r.data.pupils) || []).forEach(function (z) { zaci.push({ name: sMapou(z.name, m, !!m), studentId: z.studentId }); });
+    }
     oznam('Hrát za žáka – ' + h.className, zaci.length ? 'Vyber žáka.' : 'Ve třídě není žádný zapsaný žák.');
     vycisti();
     zaci.forEach(function (z) {
@@ -292,7 +366,6 @@
     });
   }
 
-  var BEZI = ['running', 'limit'];
   var CEKANI_MS = 5 * 1000;
   // Nova mapa 4096 x 4096 se generuje nekolik minut (2026-10-17), proto 15 min.
   var CEKANI_MAX_MS = 15 * 60 * 1000;
@@ -364,16 +437,23 @@
       // invalid_state = uz se spousti (nekdo jiny klikl), staci cekat.
       if (r.status !== 200 && r.error !== 'invalid_state') {
         var duvod = r.error === 'game_server_not_provisioned' ? 'Server této třídy ještě není připravený.'
+          : r.error === 'game_resetting' ? 'Svět se právě resetuje, zkuste to za chvíli.'
+          : r.error === 'game_closed' ? 'Hra je uzavřená.'
           : r.status === 403 ? 'Hru této třídy nemůžete spustit.' : 'Hru se nepodařilo spustit.';
-        throw { duvod: duvod };
+        throw { duvod: uMapy(r, duvod) };
       }
+      // Se dvema mapami se ceka na oba servery (kazda mapa svym dotazem, ?map=).
       var konec = Date.now() + CEKANI_MAX_MS;
       for (;;) {
         await new Promise(function (ok) { setTimeout(ok, CEKANI_MS); });
-        var s = await penezenka('GET', cesta + '?schoolId=' + encodeURIComponent(h.schoolId));
-        var stav = s.status === 200 ? s.data.session : null;
-        if (BEZI.indexOf(stav) !== -1) { tridniListek(h.schoolId, h.classId, null); return; }
-        if (stav === 'stopped') throw { duvod: 'Server se nepodařilo spustit.' };
+        var stavy = [];
+        for (var m of (h.mapy.length ? h.mapy : [null])) {
+          var s = await penezenka('GET', cesta + '?schoolId=' + encodeURIComponent(h.schoolId) + (m ? '&map=' + m : ''));
+          stavy.push(s.status === 200 ? s.data.session : null);
+        }
+        var vysledek = vysledekStartu(stavy);
+        if (vysledek === 'bezi') { tridniListek(h.schoolId, h.classId, null); return; }
+        if (vysledek === 'chyba') throw { duvod: 'Server se nepodařilo spustit.' };
         if (Date.now() > konec) throw { duvod: 'Server se nespustil do 15 minut. Zkuste to prosím znovu.' };
       }
     } catch (e) {
@@ -389,7 +469,7 @@
   // Konec hodiny (contract §3.3: POST …/session {action:"stop"}): server ulozi svet a vypne se.
   function ukonciTridu(h) {
     var zpet = function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); };
-    oznam('Ukončit hru – ' + h.className + '?', 'Svět se uloží a server se vypne. Připojení žáci budou odpojeni.');
+    oznam('Ukončit hru – ' + h.className + '?', (h.mapy.length ? 'Týká se obou map. ' : '') + 'Svět se uloží a server se vypne. Připojení žáci budou odpojeni.');
     vycisti();
     tridyEl.appendChild(tlacitko('Ano, ukončit hru', async function () {
       vycisti();
@@ -397,7 +477,7 @@
         { schoolId: h.schoolId, requestId: crypto.randomUUID(), action: 'stop' }).catch(function () { return { status: 0 }; });
       // invalid_state = uz se ukoncuje nebo nebezi.
       if (r.status === 200 || r.error === 'invalid_state') oznam('Hra se ukončuje.', 'Svět se ukládá, server se za chvíli vypne.');
-      else chyba(r.status === 403 ? 'Hru této třídy nemůžete ukončit.' : 'Hru se nepodařilo ukončit.');
+      else chyba(uMapy(r, r.status === 403 ? 'Hru této třídy nemůžete ukončit.' : 'Hru se nepodařilo ukončit.'));
       tridyEl.appendChild(tlacitko('Zpět', zpet));
     }));
     tridyEl.appendChild(tlacitko('Zpět', zpet));
@@ -436,13 +516,13 @@
     var r = await penezenka('POST', '/classes/' + encodeURIComponent(h.classId) + '/session',
       { schoolId: h.schoolId, requestId: crypto.randomUUID(), action: akce }).catch(function () { return { status: 0 }; });
     await skola(h.schoolId, h.zpet, h.skola);
-    if (r.status !== 200) chyba(r.status === 403 ? chyby.zakaz : r.error === 'invalid_state' ? chyby.stav : chyby.jine);
+    if (r.status !== 200) chyba(uMapy(r, r.status === 403 ? chyby.zakaz : r.error === 'invalid_state' ? chyby.stav : chyby.jine));
   }
 
   // Reset sveta (POST …/reset): jen zastavena trida. Dva kroky; druhy chce opsat nazev tridy.
   function resetujSvet(h) {
     var zpet = function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); };
-    oznam('Resetovat svět – ' + h.className + '?', 'Starý svět se archivuje, firmy zmizí, žákům se vrátí vložené diamanty, '
+    oznam('Resetovat svět – ' + h.className + '?', (h.mapy.length ? 'Týká se obou map. ' : '') + 'Starý svět se archivuje, firmy zmizí, žákům se vrátí vložené diamanty, '
       + 'týmy zůstanou. Nový svět se vytvoří při příštím spuštění.');
     vycisti();
     tridyEl.appendChild(tlacitko('Pokračovat', function () {
@@ -457,8 +537,8 @@
         var r = await penezenka('POST', '/classes/' + encodeURIComponent(h.classId) + '/reset',
           { schoolId: h.schoolId, requestId: crypto.randomUUID() }).catch(function () { return { status: 0 }; });
         if (r.status === 200) oznam('Svět je resetován.', 'Nový svět se vytvoří při příštím spuštění hry.');
-        else chyba(r.status === 403 ? 'Svět této třídy nemůžete resetovat.'
-          : r.error === 'invalid_state' ? 'Nejdřív ukončete hru.' : 'Svět se nepodařilo resetovat.');
+        else chyba(uMapy(r, r.status === 403 ? 'Svět této třídy nemůžete resetovat.'
+          : r.error === 'invalid_state' ? 'Nejdřív ukončete hru.' : 'Svět se nepodařilo resetovat.'));
         tridyEl.appendChild(tlacitko('Zpět', zpet));
       });
       potvrd.disabled = true;
@@ -475,13 +555,14 @@
   var MAX_TYMU = 15;
   var MAX_V_TYMU = 3;
 
-  async function tymy(h) {
+  // Tymy patri jedne mape (mapa = 'A'|'B'; bez ni dotaz bez ?map= = mapa A, jako driv).
+  async function tymy(h, mapa) {
     var zpet = function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); };
     chyba('');
     oznam('Týmy – ' + h.className, 'Načítám žáky…');
     vycisti();
-    var r = await penezenka('GET', '/classes/' + encodeURIComponent(h.classId) + '?schoolId=' + encodeURIComponent(h.schoolId))
-      .catch(function () { return { status: 0 }; });
+    var r = await penezenka('GET', '/classes/' + encodeURIComponent(h.classId) + '?schoolId=' + encodeURIComponent(h.schoolId)
+      + (mapa ? '&map=' + mapa : '')).catch(function () { return { status: 0 }; });
     if (r.status !== 200) {
       oznam('Týmy – ' + h.className, '');
       chyba(r.status === 403 ? 'Týmy této třídy nemůžete upravit.' : 'Žáky se nepodařilo načíst.');
@@ -489,6 +570,11 @@
       return;
     }
     var d = r.data;
+    var vsechny = d.maps || [];
+    var dve = vsechny.length > 1;
+    var tato = d.map || 'A';
+    var jina = tato === 'A' ? 'B' : 'A';
+    var nadpis = sMapou('Týmy – ' + h.className, tato, dve);
     // Zaklad jsou slots (obsahuji i zaky mimo ucitelův seznam), pupils jen doplni ty bez tymu.
     var prirazeni = {};
     (d.slots || []).forEach(function (s) { (s.studentIds || []).forEach(function (id) { prirazeni[id] = String(s.slot); }); });
@@ -497,10 +583,12 @@
     var skryti = Object.keys(prirazeni).length - zaci.length;
     var bezTymu = zaci.filter(function (z) { return !prirazeni[z.studentId]; }).length;
 
-    oznam('Týmy – ' + h.className, 'Žáci se stejným číslem týmu (1–' + MAX_TYMU + ') hrají spolu jednu firmu, nejvýš '
+    oznam(nadpis, (dve ? 'Mapa A: ' + vsechny[0].pupils + ' žáků, mapa B: ' + vsechny[1].pupils + ' žáků. ' : '') + 'Žáci se stejným číslem týmu (1–' + MAX_TYMU + ') hrají spolu jednu firmu, nejvýš '
       + MAX_V_TYMU + ' v týmu.' + (bezTymu ? ' Bez týmu: ' + bezTymu + ' – ti se můžou jen dívat.' : ''));
     vycisti();
+    if (dve) tridyEl.appendChild(tlacitko('Týmy mapy ' + jina, function () { tymy(h, jina); }));
     if (BEZI.indexOf(d.session) !== -1) tridyEl.appendChild(popisek('Hra běží: přesunutý žák se musí znovu připojit. Jeho vklady zůstávají u původní firmy.'));
+    if (dve) tridyEl.appendChild(popisek('Tlačítkem „→ ' + jina + '“ přesunete žáka na mapu ' + jina + ' (jen bez firmy a vkladů). Neuložené týmy se tím zahodí.'));
     zaci.forEach(function (z) {
       var radek = document.createElement('label');
       radek.className = 'radek-tymu';
@@ -516,6 +604,12 @@
       pole.addEventListener('input', function () { prirazeni[z.studentId] = pole.value.trim(); });
       radek.appendChild(jmeno);
       radek.appendChild(pole);
+      if (dve) {
+        var presun = tlacitko('→ ' + jina, function (e) { e.preventDefault(); presunZaka(h, tato, jina, z); });
+        presun.classList.add('presun');
+        presun.title = 'Přesunout na mapu ' + jina;
+        radek.appendChild(presun);
+      }
       tridyEl.appendChild(radek);
     });
     (d.slots || []).filter(function (s) { return s.company !== null && !(s.studentIds || []).length; }).forEach(function (s) {
@@ -537,10 +631,11 @@
       var slots = Object.keys(podleTymu).map(function (t) { return { slot: Number(t), studentIds: podleTymu[t].sort() }; });
       uloz.disabled = true;
       // Jeden requestId na zamer: opakovani po vypadku site se neprovede dvakrat (contract §2.3).
-      var o = await penezenka('PUT', '/classes/' + encodeURIComponent(h.classId) + '/slots',
-        { schoolId: h.schoolId, requestId: requestId, slots: slots }).catch(function () { return { status: 0 }; });
+      var telo = { schoolId: h.schoolId, requestId: requestId, slots: slots };
+      if (mapa) telo.map = mapa;
+      var o = await penezenka('PUT', '/classes/' + encodeURIComponent(h.classId) + '/slots', telo).catch(function () { return { status: 0 }; });
       uloz.disabled = false;
-      if (o.status === 200) { await tymy(h); zpravaEl.textContent = 'Týmy uloženy.'; return; }
+      if (o.status === 200) { await tymy(h, mapa); zpravaEl.textContent = 'Týmy uloženy.'; return; }
       if (o.status !== 0 && o.status < 500) requestId = crypto.randomUUID();
       chyba(o.status === 403 ? 'Týmy této třídy nemůžete upravit.'
         : o.error === 'game_resetting' ? 'Svět se právě resetuje, zkuste to za chvíli.'
@@ -549,6 +644,57 @@
         : 'Týmy se nepodařilo uložit.');
     });
     tridyEl.appendChild(uloz);
+    // Druha mapa jen pro tridu, ktera se nevejde do 15 firem (wallet jinak 409 class_fits_one_map).
+    if (vsechny.length === 1 && vsechny[0].pupils > MAX_TYMU) {
+      tridyEl.appendChild(tlacitko('Založit druhou mapu', function () { zalozMapu(h); }));
+    }
+    tridyEl.appendChild(tlacitko('Zpět', zpet));
+  }
+
+  // PUT …/pupils/{id}/map: zak bez firmy a vkladu prejde na druhou mapu bez tymu; tym mu da ucitel tam.
+  async function presunZaka(h, tato, jina, z) {
+    chyba('');
+    var r = await penezenka('PUT', '/classes/' + encodeURIComponent(h.classId) + '/pupils/' + encodeURIComponent(z.studentId) + '/map',
+      { schoolId: h.schoolId, requestId: crypto.randomUUID(), map: jina }).catch(function () { return { status: 0 }; });
+    if (r.status !== 200) { chyba(textPresunu(r)); return; }
+    await tymy(h, tato);
+    zpravaEl.textContent = (z.name || 'Žák') + ' je na mapě ' + jina + '. Přidělte mu tým v Týmech mapy ' + jina + '.';
+  }
+
+  // POST …/maps: wallet zalozi mapu B, server mapy (SSM klice, games.json, cdk deploy) pripravi provoz rucne.
+  function zalozMapu(h) {
+    var zpet = function () { chyba(''); tymy(h); };
+    chyba('');
+    oznam('Založit druhou mapu – ' + h.className + '?', 'Třída se nevejde do ' + MAX_TYMU + ' firem. Vznikne mapa B a spouští se spolu '
+      + 's mapou A. Dokud správce nepřipraví její server, hru třídy nepůjde spustit.');
+    vycisti();
+    var requestId = crypto.randomUUID();
+    var ano = tlacitko('Ano, založit druhou mapu', async function () {
+      ano.disabled = true;
+      var r = await penezenka('POST', '/classes/' + encodeURIComponent(h.classId) + '/maps',
+        { schoolId: h.schoolId, requestId: requestId }).catch(function () { return { status: 0 }; });
+      ano.disabled = false;
+      if (r.status !== 200) {
+        if (r.status !== 0 && r.status < 500) requestId = crypto.randomUUID();
+        chyba(r.error === 'class_fits_one_map' ? 'Třída se vejde na jednu mapu (' + r.info.pupils + ' žáků).'
+          : r.error === 'game_key_collision' ? 'Druhou mapu nejde založit (kolize klíče hry). Ozvěte se správci.'
+          : r.error === 'game_closed' ? 'Hra je uzavřená.'
+          : r.status === 403 ? 'Druhou mapu této třídy nemůžete založit.' : 'Druhou mapu se nepodařilo založit.');
+        return;
+      }
+      h.mapy = ['A', 'B'];
+      oznam('Druhá mapa – ' + h.className, (r.data.created ? 'Mapa B je založená.' : 'Mapa B už existuje.')
+        + ' Pošlete správci tyto kroky; dokud je neprovede, hru třídy nepůjde spustit. Pak v Týmech přesuňte žáky na mapu B.');
+      vycisti();
+      r.data.provisioning.forEach(function (krok, i) {
+        var p = popisek((i + 1) + '. ' + krok);
+        p.className = 'krok';
+        tridyEl.appendChild(p);
+      });
+      tridyEl.appendChild(tlacitko('Týmy – ' + h.className, function () { tymy(h); }));
+      tridyEl.appendChild(tlacitko('Zpět', function () { chyba(''); skola(h.schoolId, h.zpet, h.skola); }));
+    });
+    tridyEl.appendChild(ano);
     tridyEl.appendChild(tlacitko('Zpět', zpet));
   }
 
@@ -567,33 +713,48 @@
     var tridy = (r.data.classes || []).filter(function (t) { return t.gameKey; });
     if (!tridy.length) { tridyEl.appendChild(popisek('Žádná třída školy není zapsaná do Dopravy.')); return; }
     tridy.forEach(function (t) {
-      var h = { schoolId: schoolId, classId: t.classId, className: t.className || 'Třída', zpet: zpet, skola: nazev, resetPending: !!t.resetPending };
-      if (BEZI.indexOf(t.session) !== -1) {
+      var dve = mapy(t).length > 1;
+      // mapy: jen u tridy se dvema mapami (jinak [] = dotazy bez ?map=, jako driv).
+      var h = { schoolId: schoolId, classId: t.classId, className: t.className || 'Třída', zpet: zpet, skola: nazev,
+        resetPending: dve ? t.maps.some(function (m) { return m.resetPending; }) : !!t.resetPending,
+        mapy: dve ? t.maps.map(function (m) { return m.map; }) : [] };
+      var stav = stavTridy(t);
+      if (dve) t.maps.forEach(function (m) { tridyEl.appendChild(popisek(stavMapy(h.className, m))); });
+      if (BEZI.indexOf(stav) !== -1) {
+        var zive = dve ? t.maps.filter(function (m) { return BEZI.indexOf(m.session) !== -1; }) : [t];
         var role = t.canMayor ? 'Vstoupit jako starosta – ' : 'Sledovat – ';
-        tridyEl.appendChild(tlacitko(role + h.className, function () { tridniListek(schoolId, t.classId, null); }));
+        zive.forEach(function (m) {
+          tridyEl.appendChild(tlacitko(sMapou(role + h.className, m.map, dve), function () { tridniListek(schoolId, t.classId, null, dve ? m.map : null); }));
+        });
         if (jeSuperadmin) tridyEl.appendChild(tlacitko('Hrát za žáka – ' + h.className, function () { vyberZaka(h); }));
         if (t.canManage) {
-          if (t.stopDeadline) tridyEl.appendChild(odpocet(h.className, t.stopDeadline, r.data.serverNow));
+          zive.forEach(function (m) {
+            if (m.stopDeadline) tridyEl.appendChild(odpocet(sMapou(h.className, m.map, dve), m.stopDeadline, r.data.serverNow));
+          });
           // Tvrdy strop 4 h od spusteni: dal prodlouzit nejde, pak se trida musi spustit znovu rucne.
-          if (t.hardStopAt && t.stopDeadline === t.hardStopAt) tridyEl.appendChild(popisek(h.className + ': Server už nejde prodloužit (limit 4 hodiny). Pak ho spusťte znovu.'));
+          if (zive.every(function (m) { return m.hardStopAt && m.stopDeadline === m.hardStopAt; })) tridyEl.appendChild(popisek(h.className + ': Server už nejde prodloužit (limit 4 hodiny). Pak ho spusťte znovu.'));
           else tridyEl.appendChild(tlacitko('Prodloužit na 2 hodiny – ' + h.className, function () {
             akceTridy(h, 'extend', { zakaz: 'Hru této třídy nemůžete prodloužit.', stav: 'Hra už neběží.', jine: 'Hru se nepodařilo prodloužit.' });
           }));
-          if (t.session === 'limit') tridyEl.appendChild(tlacitko('Pokračovat ve hře – ' + h.className, function () {
+          if (stav === 'limit') tridyEl.appendChild(tlacitko('Pokračovat ve hře – ' + h.className, function () {
             akceTridy(h, 'resume', { zakaz: 'Hru této třídy nemůžete pustit dál.', stav: 'Hra už nečeká na pokračování.', jine: 'Hru se nepodařilo pustit dál.' });
           }));
+          // Jedna mapa bezi, druha ne (napr. selhal jeji start): „Spustit hru“ spusti jen zbyvajici.
+          if (dve && t.maps.some(function (m) { return m.session === 'stopped'; })) tridyEl.appendChild(tlacitko('Spustit hru – ' + h.className, function () { delkaHry(h); }));
           tridyEl.appendChild(tlacitko('Ukončit hru – ' + h.className, function () { ukonciTridu(h); }));
           tridyEl.appendChild(tlacitko('Týmy – ' + h.className, function () { tymy(h); }));
         }
-      } else if (t.session === 'starting' || t.session === 'stopping') {
-        tridyEl.appendChild(popisek(h.className + (t.session === 'starting' ? ' – hra se spouští' : ' – hra se ukončuje')));
+      } else if (stav === 'starting' || stav === 'stopping') {
+        tridyEl.appendChild(popisek(h.className + (stav === 'starting' ? ' – hra se spouští' : ' – hra se ukončuje')));
       } else if (t.canManage) {
         tridyEl.appendChild(tlacitko('Spustit hru – ' + h.className, function () { delkaHry(h); }));
-        if (t.resetPending) tridyEl.appendChild(popisek(h.className + ' – nový svět čeká na spuštění'));
-        else tridyEl.appendChild(tlacitko('Resetovat svět – ' + h.className, function () { resetujSvet(h); }));
+        // Se dvema mapami jde reset zopakovat, dokud nove svety nečekají na obou.
+        var vseReset = dve ? t.maps.every(function (m) { return m.resetPending; }) : h.resetPending;
+        if (h.resetPending && !dve) tridyEl.appendChild(popisek(h.className + ' – nový svět čeká na spuštění'));
+        if (!vseReset) tridyEl.appendChild(tlacitko('Resetovat svět – ' + h.className, function () { resetujSvet(h); }));
         tridyEl.appendChild(tlacitko('Týmy – ' + h.className, function () { tymy(h); }));
       } else {
-        tridyEl.appendChild(popisek(h.className + (t.resetPending ? ' – nový svět čeká na spuštění' : ' – hra neběží')));
+        tridyEl.appendChild(popisek(h.className + (h.resetPending ? ' – nový svět čeká na spuštění' : ' – hra neběží')));
       }
     });
   }
