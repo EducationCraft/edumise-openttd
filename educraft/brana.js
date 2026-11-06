@@ -211,16 +211,16 @@
   // Spolecny vstup: listek → hra; chyby cesky.
   // Zak ceka na ucitele: kazdych 10 s znovu, pripoji se sam, jakmile hodina bezi.
   // Na skryte karte se neptame; zapomenuta viditelna karta prestane po hodine (token se obnovuje, sama by neskoncila).
-  var CEKANI_HODINY_MAX_MS = 60 * 60 * 1000;
-  var cekaniOd = null;
+  var LESSON_WAIT_MAX_MS = 60 * 60 * 1000;
+  var lessonWaitStartedAt = null;
 
   function cekejNaHodinu(znovu) {
     zastavPrubeh();
     oznam('Hodina Dopravy teď neběží.', znovu ? 'Počkej, až ji učitel spustí – připojím tě sám.' : 'Počkej, až ji učitel spustí.');
     if (!znovu) return;
-    if (cekaniOd === null) cekaniOd = Date.now();
-    if (Date.now() - cekaniOd >= CEKANI_HODINY_MAX_MS) {
-      cekaniOd = null;
+    if (lessonWaitStartedAt === null) lessonWaitStartedAt = Date.now();
+    if (Date.now() - lessonWaitStartedAt >= LESSON_WAIT_MAX_MS) {
+      lessonWaitStartedAt = null;
       oznam('Hodina Dopravy teď neběží.', 'Přestal jsem čekat. Až hodina poběží, klikni na Zkusit znovu.');
       vycisti();
       tridyEl.appendChild(tlacitko('Zkusit znovu', function () {
@@ -230,16 +230,16 @@
       }));
       return;
     }
-    setTimeout(function () { azJeKartaVidet(znovu); }, 10 * 1000);
+    setTimeout(function () { whenTabVisible(znovu); }, 10 * 1000);
   }
 
-  function azJeKartaVidet(dal) {
-    if (!document.hidden) { dal(); return; }
-    document.addEventListener('visibilitychange', function priNavratu() {
+  function whenTabVisible(next) {
+    if (!document.hidden) { next(); return; }
+    document.addEventListener('visibilitychange', function onReturn() {
       if (document.hidden) return;
-      document.removeEventListener('visibilitychange', priNavratu);
-      cekaniOd = null; // zak je zpet, lhuta bezi znovu
-      dal();
+      document.removeEventListener('visibilitychange', onReturn);
+      lessonWaitStartedAt = null; // zak je zpet, lhuta bezi znovu
+      next();
     });
   }
 
