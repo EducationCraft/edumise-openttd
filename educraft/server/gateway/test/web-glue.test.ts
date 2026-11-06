@@ -122,6 +122,7 @@ describe('brana.js', () => {
     const els: Record<string, any> = { titulek: el(), zprava: el(), chyba: el(), odkaz: el(), tridy: el(), hra: el() };
     const calls: { url: string; init: any }[] = [];
     const tickets: any[] = [];
+    const docListeners = new Set<() => void>();
     const listeners: ((e: any) => void)[] = [];
     const ctx: any = {
       window: { addEventListener: (_: string, f: any) => listeners.push(f) },
@@ -129,6 +130,9 @@ describe('brana.js', () => {
       document: {
         getElementById: (id: string) => els[id],
         body: { classList: { add: vi.fn() } },
+        hidden: false,
+        addEventListener: (_: string, f: any) => docListeners.add(f),
+        removeEventListener: (_: string, f: any) => docListeners.delete(f),
         createElement: () => ({ ...el(), listeners: [] as any[], addEventListener(_: string, f: any) { this.listeners.push(f); } }),
       },
       fetch: async (url: string, init: any) => {
@@ -149,7 +153,8 @@ describe('brana.js', () => {
       listeners.forEach((f) => f({ origin, source, data }));
       await vi.advanceTimersByTimeAsync(0);
     };
-    return { els, calls, tickets, fromGame };
+    const setHidden = (hidden: boolean) => { ctx.document.hidden = hidden; [...docListeners].forEach((f) => f()); };
+    return { els, calls, tickets, fromGame, setHidden };
   }
 
   const S1 = '3f0c9a1b-2c4d-4e5f-8a9b-0c1d2e3f4a5b';
@@ -201,6 +206,38 @@ describe('brana.js', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(els.titulek.textContent).toBe('Hodina Dopravy teď neběží.');
     expect(els.hra.src).toBe('');
+  });
+
+  const noSessions = { 'GET /me/sessions': () => ({ status: 200, body: { data: { sessions: [] } } }) };
+  const sessionPolls = (calls: { url: string }[]) => calls.filter((c) => c.url.endsWith('/me/sessions')).length;
+
+  it('a waiting pupil polls every 10 s only while the tab is visible and polls again on return', async () => {
+    const { calls, setHidden } = load(jwt({ 'custom:student_id': 's-1' }), noSessions);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sessionPolls(calls)).toBe(3);
+    setHidden(true);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(sessionPolls(calls)).toBe(3);
+    setHidden(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sessionPolls(calls)).toBe(4);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sessionPolls(calls)).toBe(5);
+  });
+
+  it('a forgotten visible tab stops polling after an hour and "Zkusit znovu" resumes it', async () => {
+    const { els, calls } = load(jwt({ 'custom:student_id': 's-1' }), noSessions);
+    await vi.advanceTimersByTimeAsync(3_600_000);
+    const polls = sessionPolls(calls);
+    expect(polls).toBe(361);
+    expect(labels(els)).toEqual(['Zkusit znovu']);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(sessionPolls(calls)).toBe(polls);
+    await click(els, 'Zkusit znovu');
+    expect(sessionPolls(calls)).toBe(polls + 1);
+    expect(els.tridy.hidden).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sessionPolls(calls)).toBe(polls + 2);
   });
 
   it('pupil deep link #c joins that class; a non-UUID is ignored', async () => {
@@ -258,7 +295,7 @@ describe('brana.js', () => {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: null }] } } }),
       [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', canManage: true, canMayor: true })] } } }),
       [`POST /classes/${K1}/session`]: (body) => { starts.push(body); return { status: 200, body: { data: { session: 'starting', sessionId: 'x' } } }; },
-      [`GET /classes/${K1}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { session: state } } }),
+      [`GET /classes/${K1}?schoolId=${S1}&fields=session`]: () => ({ status: 200, body: { data: { session: state } } }),
       [`POST /classes/${K1}/game-ticket`]: () => ok,
     });
     await vi.advanceTimersByTimeAsync(0);
@@ -378,7 +415,7 @@ describe('brana.js', () => {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN' }] } } }),
       [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', canManage: true })] } } }),
       [`POST /classes/${K1}/session`]: () => ({ status: 409, body: { error: 'invalid_state' } }),
-      [`GET /classes/${K1}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
+      [`GET /classes/${K1}?schoolId=${S1}&fields=session`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
     });
     await vi.advanceTimersByTimeAsync(0);
     await click(els, 'Spustit hru – 6.I');
@@ -394,7 +431,7 @@ describe('brana.js', () => {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: 'ZŠ Demo' }] } } }),
       [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', canManage: true })] } } }),
       [`POST /classes/${K1}/session`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
-      [`GET /classes/${K1}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
+      [`GET /classes/${K1}?schoolId=${S1}&fields=session`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
     });
     const progress = () => {
       const [bar, text] = els.tridy.children[0].children;
@@ -416,7 +453,7 @@ describe('brana.js', () => {
       'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'ADMIN', name: 'ZŠ Demo' }] } } }),
       [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K2, className: '7.C', canManage: true, resetPending: true })] } } }),
       [`POST /classes/${K2}/session`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
-      [`GET /classes/${K2}?schoolId=${S1}`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
+      [`GET /classes/${K2}?schoolId=${S1}&fields=session`]: () => ({ status: 200, body: { data: { session: 'starting' } } }),
     });
     await vi.advanceTimersByTimeAsync(0);
     await click(r.els, 'Spustit hru – 7.C');

@@ -210,10 +210,37 @@
 
   // Spolecny vstup: listek → hra; chyby cesky.
   // Zak ceka na ucitele: kazdych 10 s znovu, pripoji se sam, jakmile hodina bezi.
+  // Na skryte karte se neptame; zapomenuta viditelna karta prestane po hodine (token se obnovuje, sama by neskoncila).
+  var CEKANI_HODINY_MAX_MS = 60 * 60 * 1000;
+  var cekaniOd = null;
+
   function cekejNaHodinu(znovu) {
     zastavPrubeh();
     oznam('Hodina Dopravy teď neběží.', znovu ? 'Počkej, až ji učitel spustí – připojím tě sám.' : 'Počkej, až ji učitel spustí.');
-    if (znovu) setTimeout(znovu, 10 * 1000);
+    if (!znovu) return;
+    if (cekaniOd === null) cekaniOd = Date.now();
+    if (Date.now() - cekaniOd >= CEKANI_HODINY_MAX_MS) {
+      cekaniOd = null;
+      oznam('Hodina Dopravy teď neběží.', 'Přestal jsem čekat. Až hodina poběží, klikni na Zkusit znovu.');
+      vycisti();
+      tridyEl.appendChild(tlacitko('Zkusit znovu', function () {
+        tridyEl.replaceChildren();
+        tridyEl.hidden = true;
+        znovu();
+      }));
+      return;
+    }
+    setTimeout(function () { azJeKartaVidet(znovu); }, 10 * 1000);
+  }
+
+  function azJeKartaVidet(dal) {
+    if (!document.hidden) { dal(); return; }
+    document.addEventListener('visibilitychange', function priNavratu() {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', priNavratu);
+      cekaniOd = null; // zak je zpet, lhuta bezi znovu
+      dal();
+    });
   }
 
   async function vstup(ziskejListek, jmeno, znovu) {
@@ -370,7 +397,8 @@
       var konec = Date.now() + CEKANI_MAX_MS;
       for (;;) {
         await new Promise(function (ok) { setTimeout(ok, CEKANI_MS); });
-        var s = await penezenka('GET', cesta + '?schoolId=' + encodeURIComponent(h.schoolId));
+        // fields=session: bez cteni zaku a historie operaci (starsi penezenka parametr ignoruje).
+        var s = await penezenka('GET', cesta + '?schoolId=' + encodeURIComponent(h.schoolId) + '&fields=session');
         var stav = s.status === 200 ? s.data.session : null;
         if (BEZI.indexOf(stav) !== -1) { tridniListek(h.schoolId, h.classId, null); return; }
         if (stav === 'stopped') throw { duvod: 'Server se nepodařilo spustit.' };
