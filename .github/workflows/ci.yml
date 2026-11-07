@@ -1,0 +1,40 @@
+# EduCraft additions only: gateway (incl. brana.js and pre.js glue) and infra unit tests.
+# The engine itself is covered by the upstream ci-build.yml.
+name: EduCraft tests
+
+on:
+  pull_request:
+    branches:
+    - educraft
+  push:
+    branches:
+    - educraft
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
+        cache-dependency-path: |
+          educraft/server/gateway/package-lock.json
+          educraft/server/infra/package-lock.json
+    - name: Gateway
+      working-directory: educraft/server/gateway
+      run: |
+        npm ci --ignore-scripts
+        ./node_modules/.bin/tsc --noEmit
+        ./node_modules/.bin/vitest run
+    - name: Infra
+      working-directory: educraft/server/infra
+      run: |
+        npm ci --ignore-scripts
+        ./node_modules/.bin/tsc --noEmit
+        ./node_modules/.bin/vitest run

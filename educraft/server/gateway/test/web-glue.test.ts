@@ -118,7 +118,8 @@ describe('brana.js', () => {
     };
   }
 
-  function load(idToken: string, routes: Record<string, (body: any) => { status: number; body: any }>, hash = '') {
+  function load(idToken: string, routes: Record<string, (body: any) => { status: number; body: any }>, hash = '',
+    randomUUID = () => 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b') {
     const els: Record<string, any> = { titulek: el(), zprava: el(), chyba: el(), odkaz: el(), tridy: el(), hra: el() };
     const calls: { url: string; init: any }[] = [];
     const tickets: any[] = [];
@@ -141,7 +142,7 @@ describe('brana.js', () => {
       },
       atob: (s: string) => Buffer.from(s, 'base64').toString('binary'),
       escape, setInterval, clearInterval, setTimeout, encodeURIComponent,
-      crypto: { randomUUID: () => 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b' }, decodeURIComponent, JSON, Object, Date, Error,
+      crypto: { randomUUID }, decodeURIComponent, JSON, Object, Date, Error,
     };
     vm.runInNewContext(readFileSync(join(ROOT, 'educraft/brana.js'), 'utf8'), ctx);
     /** A message from the game frame (or, with `source`, from somewhere else). */
@@ -287,7 +288,7 @@ describe('brana.js', () => {
       [`POST /classes/${K1}/session`]: (body) => { stops.push(body); return { status: 200, body: { data: { session: 'stopping' } } }; },
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I', '7.C – hra se ukončuje']);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I', 'Týmy – 6.I', '7.C – hra se ukončuje']);
     await click(els, 'Ukončit hru – 6.I');
     expect(stops).toEqual([]);
     await click(els, 'Ano, ukončit hru');
@@ -310,7 +311,7 @@ describe('brana.js', () => {
     });
     await vi.advanceTimersByTimeAsync(0);
     expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', '6.I: Server se vypne za 1:02:05',
-      'Prodloužit na 2 hodiny – 6.I', 'Pokračovat ve hře – 6.I', 'Ukončit hru – 6.I', 'Sledovat – 7.C']);
+      'Prodloužit na 2 hodiny – 6.I', 'Pokračovat ve hře – 6.I', 'Ukončit hru – 6.I', 'Týmy – 6.I', 'Sledovat – 7.C']);
     await vi.advanceTimersByTimeAsync(6_000);
     expect(labels(els)[2]).toBe('6.I: Server se vypne za 1:01:59');
     deadline = new Date(Date.now() + skew + 7_200_000).toISOString();
@@ -343,8 +344,8 @@ describe('brana.js', () => {
       [`POST /classes/${K1}/reset`]: (body) => { resets.push(body); return status === 200 ? { status, body: { data: {} } } : { status, body: { error: 'forbidden' } }; },
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(labels(els)).toEqual(['Hrát samostatně', 'Spustit hru – 6.I', 'Resetovat svět – 6.I', 'Spustit hru – 7.C',
-      '7.C – nový svět čeká na spuštění', '8.B – nový svět čeká na spuštění']);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Spustit hru – 6.I', 'Resetovat svět – 6.I', 'Týmy – 6.I', 'Spustit hru – 7.C',
+      '7.C – nový svět čeká na spuštění', 'Týmy – 7.C', '8.B – nový svět čeká na spuštění']);
     await click(els, 'Resetovat svět – 6.I');
     expect(els.zprava.textContent).toContain('žákům se vrátí vložené diamanty');
     await click(els, 'Pokračovat');
@@ -442,7 +443,7 @@ describe('brana.js', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
     await click(els, 'Demoškola');
-    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I']);
+    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I', 'Týmy – 6.I']);
     await click(els, 'Zpět na školy');
     expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
     await click(els, 'Demoškola');
@@ -457,6 +458,148 @@ describe('brana.js', () => {
     const { tickets } = load(jwt({ 'cognito:groups': ['superadmin'] }), { [`POST /classes/${K1}/game-ticket`]: () => ok }, `#s=${S1}&c=${K1}&as=pupil&sid=${P1}`);
     await vi.advanceTimersByTimeAsync(0);
     expect(tickets).toEqual([{ schoolId: S1, as: 'pupil', studentId: P1 }]);
+  });
+
+  describe('team editor (Týmy, PUT …/slots)', () => {
+    const A = 'a0000000-2c4d-4e5f-8a9b-0c1d2e3f4a5b';
+    const B = 'b0000000-2c4d-4e5f-8a9b-0c1d2e3f4a5b';
+    const C = 'c0000000-2c4d-4e5f-8a9b-0c1d2e3f4a5b';
+    const D = 'd0000000-2c4d-4e5f-8a9b-0c1d2e3f4a5b';
+    const H = 'e0000000-2c4d-4e5f-8a9b-0c1d2e3f4a5b'; // enrolled, but not on this teacher's list
+    const view = (session = 'stopped') => ({ status: 200, body: { data: {
+      session,
+      pupils: [
+        { studentId: B, name: 'Bára', slot: 1 }, { studentId: A, name: 'Adam', slot: 1 },
+        { studentId: D, name: 'Čeněk', slot: 1 }, { studentId: C, name: 'Cyril', slot: null },
+      ],
+      slots: [
+        { slot: 1, studentIds: [B, A, D], company: 0, companyName: 'Adam a spol.' },
+        { slot: 2, studentIds: [H], company: 1, companyName: 'Hvězda' },
+        { slot: 4, studentIds: [], company: 3, companyName: 'Rychlík' },
+        { slot: 5, studentIds: [], company: null, companyName: null },
+      ],
+    } } });
+    const rows = (els: any) => els.tridy.children.filter((c: any) => c.className === 'radek-tymu')
+      .map((r: any) => ({ name: r.children[0].textContent, input: r.children[1] }));
+    const type = (els: any, name: string, value: string) => {
+      const { input } = rows(els).find((r: any) => r.name === name);
+      input.value = value;
+      input.listeners[0]();
+    };
+    function open(routes: Record<string, (body: any) => { status: number; body: any }>, session = 'stopped', uuid?: () => string) {
+      const gets: number[] = [];
+      const r = load(jwt({ 'cognito:groups': ['TEACHER'] }), {
+        'GET /my-schools': () => ({ status: 200, body: { data: { schools: [{ schoolId: S1, role: 'TEACHER', name: 'ZŠ Demo' }] } } }),
+        [`GET /classes?schoolId=${S1}`]: () => ({ status: 200, body: { data: { classes: [cls({ classId: K1, className: '6.I', session, canManage: true })] } } }),
+        [`GET /classes/${K1}?schoolId=${S1}`]: () => { gets.push(1); return view(session); },
+        ...routes,
+      }, '', uuid);
+      return { ...r, gets };
+    }
+
+    it('lists pupils by Czech name with their team, flags pupils without a team, ownerless companies and hidden pupils', async () => {
+      const { els } = open({});
+      await vi.advanceTimersByTimeAsync(0);
+      await click(els, 'Týmy – 6.I');
+      expect(els.titulek.textContent).toBe('Týmy – 6.I');
+      expect(els.zprava.textContent).toBe('Žáci se stejným číslem týmu (1–15) hrají spolu jednu firmu, nejvýš 3 v týmu. Bez týmu: 1 – ti se můžou jen dívat.');
+      expect(rows(els).map((r: any) => [r.name, r.input.value, r.input.min, r.input.max])).toEqual([
+        ['Adam', '1', '1', '15'], ['Bára', '1', '1', '15'], ['Cyril', '', '1', '15'], ['Čeněk', '1', '1', '15'],
+      ]);
+      expect(labels(els).filter(Boolean)).toEqual([
+        'Tým 4: Rychlík (bez členů) – žák s tímto číslem firmu převezme.',
+        'Další žáci mimo váš seznam (1) zůstávají ve svých týmech.',
+        'Uložit týmy', 'Zpět',
+      ]);
+      await click(els, 'Zpět');
+      expect(els.titulek.textContent).toBe('ZŠ Demo');
+      expect(labels(els)).toContain('Týmy – 6.I');
+    });
+
+    it('a running game warns that moved pupils must reconnect', async () => {
+      const { els } = open({}, 'running');
+      await vi.advanceTimersByTimeAsync(0);
+      await click(els, 'Týmy – 6.I');
+      expect(labels(els)[0]).toBe('Hra běží: přesunutý žák se musí znovu připojit. Jeho vklady zůstávají u původní firmy.');
+    });
+
+    it('refuses a missing, out-of-range or fractional team number and a team of four without calling the wallet', async () => {
+      const puts: any[] = [];
+      const { els } = open({ [`PUT /classes/${K1}/slots`]: (b) => { puts.push(b); return { status: 200, body: { data: {} } }; } });
+      await vi.advanceTimersByTimeAsync(0);
+      await click(els, 'Týmy – 6.I');
+      await click(els, 'Uložit týmy');
+      expect(els.chyba.textContent).toBe('Každý žák musí mít číslo týmu 1 až 15.');
+      for (const bad of ['0', '16', '2.5', 'x']) {
+        type(els, 'Cyril', bad);
+        await click(els, 'Uložit týmy');
+        expect(els.chyba.textContent).toBe('Každý žák musí mít číslo týmu 1 až 15.');
+      }
+      type(els, 'Cyril', '1');
+      await click(els, 'Uložit týmy');
+      expect(els.chyba.textContent).toBe('V týmu 1 jsou víc než 3 žáci.');
+      expect(els.chyba.hidden).toBe(false);
+      expect(puts).toEqual([]);
+    });
+
+    it('saves every enrolled pupil exactly once (hidden pupils keep their team), then reloads', async () => {
+      const puts: any[] = [];
+      const { els, gets } = open({ [`PUT /classes/${K1}/slots`]: (b) => { puts.push(b); return { status: 200, body: { data: {} } }; } });
+      await vi.advanceTimersByTimeAsync(0);
+      await click(els, 'Týmy – 6.I');
+      type(els, 'Cyril', ' 2 ');
+      type(els, 'Čeněk', '4');
+      await click(els, 'Uložit týmy');
+      expect(puts).toEqual([{ schoolId: S1, requestId: 'aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a5b', slots: [
+        { slot: 1, studentIds: [A, B] },
+        { slot: 2, studentIds: [C, H] },
+        { slot: 4, studentIds: [D] },
+      ] }]);
+      expect(gets).toHaveLength(2);
+      expect(els.chyba.hidden).toBe(true);
+      expect(els.zprava.textContent).toBe('Týmy uloženy.');
+    });
+
+    it('maps wallet refusals to Czech; keeps the requestId after a network or 5xx error, new one after a 4xx', async () => {
+      let answer: any = { status: 403, body: { error: 'forbidden' } };
+      const ids: string[] = [];
+      let n = 0;
+      const { els } = open({
+        [`PUT /classes/${K1}/slots`]: (b) => {
+          ids.push(b.requestId);
+          if (answer === 'network') throw new Error('offline');
+          return answer;
+        },
+      }, 'stopped', () => `aaaaaaaa-2c4d-4e5f-8a9b-0c1d2e3f4a${String(n++).padStart(2, '0')}`);
+      await vi.advanceTimersByTimeAsync(0);
+      await click(els, 'Týmy – 6.I');
+      type(els, 'Cyril', '2');
+      const save = async () => { await click(els, 'Uložit týmy'); return els.chyba.textContent; };
+      expect(await save()).toBe('Týmy této třídy nemůžete upravit.');
+      answer = { status: 409, body: { error: 'game_resetting' } };
+      expect(await save()).toBe('Svět se právě resetuje, zkuste to za chvíli.');
+      answer = { status: 409, body: { error: 'invalid_state' } };
+      expect(await save()).toBe('Tým, jehož firma už skončila, nejde měnit.');
+      answer = { status: 400, body: { error: 'invalid_request' } };
+      expect(await save()).toBe('Seznam žáků se mezitím změnil. Otevřete týmy znovu.');
+      answer = { status: 503, body: { error: 'busy' } };
+      expect(await save()).toBe('Týmy se nepodařilo uložit.');
+      answer = 'network';
+      expect(await save()).toBe('Týmy se nepodařilo uložit.');
+      expect(els.tridy.children.find((b: any) => b.textContent === 'Uložit týmy').disabled).toBe(false);
+      // each 4xx burns its id; the 503 and the network error reuse the same one (contract §2.3)
+      expect(ids.map((id) => id.slice(-2))).toEqual(['00', '01', '02', '03', '04', '04']);
+    });
+
+    it('a class the teacher may not see or that fails to load shows only Zpět', async () => {
+      for (const [status, text] of [[403, 'Týmy této třídy nemůžete upravit.'], [500, 'Žáky se nepodařilo načíst.']] as const) {
+        const { els } = open({ [`GET /classes/${K1}?schoolId=${S1}`]: () => ({ status, body: { error: 'x' } }) });
+        await vi.advanceTimersByTimeAsync(0);
+        await click(els, 'Týmy – 6.I');
+        expect(els.chyba.textContent).toBe(text);
+        expect(labels(els)).toEqual(['Zpět']);
+      }
+    });
   });
 
   describe('in-game wallet', () => {
