@@ -287,7 +287,7 @@ describe('brana.js', () => {
       [`POST /classes/${K1}/session`]: (body) => { stops.push(body); return { status: 200, body: { data: { session: 'stopping' } } }; },
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I', '7.C – hra se ukončuje']);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I', 'Týmy – 6.I', '7.C – hra se ukončuje']);
     await click(els, 'Ukončit hru – 6.I');
     expect(stops).toEqual([]);
     await click(els, 'Ano, ukončit hru');
@@ -310,7 +310,7 @@ describe('brana.js', () => {
     });
     await vi.advanceTimersByTimeAsync(0);
     expect(labels(els)).toEqual(['Hrát samostatně', 'Vstoupit jako starosta – 6.I', '6.I: Server se vypne za 1:02:05',
-      'Prodloužit na 2 hodiny – 6.I', 'Pokračovat ve hře – 6.I', 'Ukončit hru – 6.I', 'Sledovat – 7.C']);
+      'Prodloužit na 2 hodiny – 6.I', 'Pokračovat ve hře – 6.I', 'Ukončit hru – 6.I', 'Týmy – 6.I', 'Sledovat – 7.C']);
     await vi.advanceTimersByTimeAsync(6_000);
     expect(labels(els)[2]).toBe('6.I: Server se vypne za 1:01:59');
     deadline = new Date(Date.now() + skew + 7_200_000).toISOString();
@@ -343,8 +343,8 @@ describe('brana.js', () => {
       [`POST /classes/${K1}/reset`]: (body) => { resets.push(body); return status === 200 ? { status, body: { data: {} } } : { status, body: { error: 'forbidden' } }; },
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(labels(els)).toEqual(['Hrát samostatně', 'Spustit hru – 6.I', 'Resetovat svět – 6.I', 'Spustit hru – 7.C',
-      '7.C – nový svět čeká na spuštění', '8.B – nový svět čeká na spuštění']);
+    expect(labels(els)).toEqual(['Hrát samostatně', 'Spustit hru – 6.I', 'Resetovat svět – 6.I', 'Týmy – 6.I', 'Spustit hru – 7.C',
+      '7.C – nový svět čeká na spuštění', 'Týmy – 7.C', '8.B – nový svět čeká na spuštění']);
     await click(els, 'Resetovat svět – 6.I');
     expect(els.zprava.textContent).toContain('žákům se vrátí vložené diamanty');
     await click(els, 'Pokračovat');
@@ -442,7 +442,7 @@ describe('brana.js', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
     await click(els, 'Demoškola');
-    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I']);
+    expect(labels(els)).toEqual(['Zpět na školy', 'Hrát samostatně', 'Vstoupit jako starosta – 6.I', 'Hrát za žáka – 6.I', 'Prodloužit na 2 hodiny – 6.I', 'Ukončit hru – 6.I', 'Týmy – 6.I']);
     await click(els, 'Zpět na školy');
     expect(labels(els)).toEqual(['Demoškola', 'Škola 4f0c9a1b']);
     await click(els, 'Demoškola');
