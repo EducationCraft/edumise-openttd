@@ -90,11 +90,16 @@
     // p=1: hra ukaze okno penezenky (vklad diamantu), jen zakovi ve vlastni tride (divak cizi tridy ne, D19).
     hraZaka = jeZak && prvni.role === 'pupil';
     spust('#w=' + encodeURIComponent(prvni.url) + '&n=' + encodeURIComponent(prvni.playerName || jmeno) + (hraZaka ? '&p=1' : ''));
-    setInterval(async function () {
+    // Skryta zalozka listek nepotrebuje; 403/404/409 = hodina skoncila nebo pristup zmizel, dalsi pokusy jsou zbytecne.
+    var obnova = setInterval(async function () {
+      if (document.hidden) return;
       try {
         var r = await ziskejListek();
         if (r.status === 200 && hraEl.contentWindow) {
           hraEl.contentWindow.postMessage({ t: 'edumise-ticket', url: r.data.url }, location.origin);
+        } else if (r.status === 403 || r.status === 404 || r.status === 409) {
+          clearInterval(obnova);
+          oznam('Hodina skončila.', 'Pro další hru načti stránku znovu.');
         }
       } catch (e) { /* dalsi pokus za 90 s */ }
     }, OBNOVA_LISTKU_MS);
