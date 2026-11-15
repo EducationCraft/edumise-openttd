@@ -150,7 +150,7 @@ describe('brana.js', () => {
       listeners.forEach((f) => f({ origin, source, data }));
       await vi.advanceTimersByTimeAsync(0);
     };
-    return { els, calls, tickets, fromGame };
+    return { els, calls, tickets, fromGame, ctx };
   }
 
   const S1 = '3f0c9a1b-2c4d-4e5f-8a9b-0c1d2e3f4a5b';
@@ -177,6 +177,26 @@ describe('brana.js', () => {
     await vi.advanceTimersByTimeAsync(90_000);
     expect(els.hra.contentWindow.postMessage).toHaveBeenCalledWith({ t: 'edumise-ticket', url: WSS.replace('abc', 't1') }, 'https://ottd.edumise.educraft.cz');
     expect(tickets).toEqual([{ classId: K1 }, { classId: K1 }]); // the same body every refresh
+  });
+
+  it('ticket refresh stops after 409/403/404 and skips a hidden tab', async () => {
+    let status = 200;
+    const { els, tickets, ctx } = load(jwt({ 'custom:student_id': 's-1' }), {
+      'GET /me/sessions': () => ({ status: 200, body: { data: { sessions: [{ classId: K1, className: '6.I', session: 'running', own: true }] } } }),
+      'POST /me/game-ticket': () => (status === 200 ? ok : { status, body: { error: 'no_session' } }),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tickets).toHaveLength(1);
+    ctx.document.hidden = true;
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(tickets).toHaveLength(1); // hidden: no request
+    ctx.document.hidden = false;
+    status = 409;
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(tickets).toHaveLength(2);
+    expect(els.titulek.textContent).toBe('Hodina skončila.');
+    await vi.advanceTimersByTimeAsync(900_000);
+    expect(tickets).toHaveLength(2); // stopped for good
   });
 
   it('pupil: several classes run → "Hrát" for the own one, "Dívat se" for the others', async () => {
