@@ -89,6 +89,7 @@ pred vetsi zmenou ji precti tam. Zavazna specifikace penez a protokolu: `educraf
 ```bash
 cd educraft/server/gateway && ./node_modules/.bin/vitest run && ./node_modules/.bin/tsc --noEmit
 cd educraft/server/infra && ./node_modules/.bin/vitest run
+node --test educraft/brana.test.js                 # pure helpers of the gate
 cmake --build build-dedicated -j"$(nproc)" --target openttd openttd_test && build-dedicated/openttd_test "Edu*,LOAN*"
 python3 educraft/server/gs_harness.py          # potrebuje build-dedicated/openttd + OpenGFX, ~5 min (--slow ~20 min)
 ```

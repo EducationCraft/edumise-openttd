@@ -60,6 +60,31 @@ in, not an attacker out.
 at most 3 per team, one `requestId` per intent). A class with more than 15 pupils needs pairs here;
 pupils without a team can only watch. Same rules as the EduMise teacher editor (`slotyZPrirazeni`).
 
+**Second map** (EducationCraft/educraft-wallet#1, needs educraft-wallet PR #5 deployed; with an older wallet,
+which sends no `maps[]`, and for every one-map class the gate behaves as before). A class that does not fit
+into 15 companies gets map B. The gate reads `maps[]` from `GET /wallet/classes` and the class view:
+
+- one *Spustit hru* starts both maps and waits until every map is `running` (it polls the class view once per
+  map with `?map=`); stop, extend, resume and reset are one class action too. An error on one map is shown as
+  *Mapa B: …*. When one map runs and the other does not, *Spustit hru* stays visible and starts the rest.
+- a teacher sees one status line per map, a countdown per map and *Vstoupit jako starosta / Sledovat* per map
+  (`game-ticket {map}`); *Hrát za žáka* lists the pupils of both maps.
+- *Týmy* edits one map (`PUT …/slots {map}`), switches with *Týmy mapy A/B*, and moves a pupil with *→ B* /
+  *→ A* (`PUT …/pupils/<id>/map`; a pupil with a company or deposits cannot move, the reason is shown in
+  Czech). A moved pupil has no team until the teacher gives them one on the new map.
+- *Založit druhou mapu* (in *Týmy*, only while the class has one map with more than 15 enrolled pupils)
+  calls `POST …/maps` and shows the wallet's provisioning steps (two SSM keys, `games.json`, `cdk deploy`)
+  for the operator. Until they are done the class cannot start (`409 game_server_not_provisioned`, map B).
+  Each map is one ECS service, 9 of the stack's 500 CloudFormation resources.
+- a pupil joins their own map automatically when it is their only live session apart from the sibling map
+  of their class; otherwise the list labels the two maps *(mapa A)* / *(mapa B)*. The own map is picked by
+  the wallet (`game-ticket {classId}`), any other map by `gameKey` (spectator).
+
+`brana.js` and `index.html` only talk to the wallet API and to the game frame through the existing
+postMessage/`#w=` protocol, which this change leaves alone, so they do not need a new WASM build or server
+image and can be deployed on their own (the "same SHA" rule below is about `openttd.wasm` and the server).
+Pure helpers are tested with `node --test educraft/brana.test.js` (in a browser the file exports nothing).
+
 **Deposit from inside the game.** A pupil opens *Finance → Vklad diamantů* in the game: a native
 window (`src/edu_wallet_gui.cpp`) shows the wallet balance, picks an amount with −10/−1/+1/+10/Vše
 (no text field, so touch devices need no keyboard) and shows what the company gets in Kč. The game
