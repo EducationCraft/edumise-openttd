@@ -77,6 +77,7 @@ describe('WSS → TCP proxy', () => {
 
   async function setup(startedAt: number, spectatorCap?: number) {
     const peers: string[] = [];
+    const logs: [string, Record<string, unknown> | undefined][] = [];
     game = net.createServer((sock) => {
       peers.push(sock.remoteAddress!);
       sock.on('data', (d) => sock.write(Buffer.concat([Buffer.from('echo:'), d])));
@@ -89,16 +90,16 @@ describe('WSS → TCP proxy', () => {
       registry,
       gameHost: '127.0.0.1',
       gamePort,
-      log: () => {},
+      log: (_l, msg, extra) => logs.push([msg, extra]),
       spectatorCap,
     });
     const port = await listen(gw);
-    return { peers, registry, url: (tok: string) => `ws://127.0.0.1:${port}/g/${GAME}?t=${encodeURIComponent(tok)}` };
+    return { peers, registry, logs, url: (tok: string) => `ws://127.0.0.1:${port}/g/${GAME}?t=${encodeURIComponent(tok)}` };
   }
 
   it('pipes bytes to the game port from a per-connection loopback address', async () => {
     const now = Math.floor(Date.now() / 1000);
-    const { peers, registry, url } = await setup(now - 5);
+    const { peers, registry, logs, url } = await setup(now - 5);
     const ws = new WebSocket(url(signTicket(KEY, t({ iat: now, exp: now + 120 }))), 'binary');
     await new Promise((r) => ws.on('open', r));
     ws.send(Buffer.from('hi'));
@@ -106,9 +107,11 @@ describe('WSS → TCP proxy', () => {
     expect(reply.toString()).toBe('echo:hi');
     expect(peers).toEqual(['127.77.0.1']);
     expect(registry.get('127.77.0.1')).toEqual({ studentId: 's-1', role: 'pupil' });
-    ws.close();
+    ws.close(1001, 'bye');
     await new Promise((r) => setTimeout(r, 50));
     expect(registry.size).toBe(0);
+    // edumise#11: the close is logged with who ended it and the traffic counts.
+    expect(logs.find(([m]) => m === 'client disconnected')?.[1]).toMatchObject({ role: 'pupil', by: 'browser', code: 1001, reason: 'bye', inB: 2, outB: 7 });
   });
 
   it('caps spectators (1013 busy) but never mayors or pupils', async () => {

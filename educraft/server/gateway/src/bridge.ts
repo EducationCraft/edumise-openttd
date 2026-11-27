@@ -29,6 +29,8 @@ export const T = {
   heldWait: 10_000,
   reportWait: 10_000,
   saveEvery: 5 * 60_000,
+  /** No client connected this long (1 h) → console-pause the world (edumise#11: 5.T ran 18 game years empty). */
+  idlePause: 60 * 60_000,
 } as const;
 /** Chat warnings before the wallet's stopDeadline (the deadline job then stops the server). */
 const WARN = [
@@ -112,6 +114,9 @@ export class Bridge {
   stopping = false;
   sendBlocked = false;
   limited = false;
+  /** Paused with the console `pause` because nobody is connected; a separate pause bit from the GS one. */
+  idlePaused = false;
+  private emptySince: number | null = null;
   /** Ends the process after a world reset archived the old map; ECS restarts the task (tests override it). */
   exit: (code: number) => void = (code) => process.exit(code);
   /** Last `slotsRev` seen in GET /ops (D20); a change refreshes the slot map and demotes moved pupils. */
@@ -160,6 +165,11 @@ export class Bridge {
   attach(admin: AdminLink): Promise<void> {
     this.admin = admin;
     this.phase = 'boot';
+    // edumise#11: a joining client must replay every frame played during its map download in one
+    // blocking loop; on a 4096² map that starved the browser of packets for > 20 s and the client
+    // hung up. Pausing while someone joins keeps that backlog cheap. Set here, not in openttd.cfg,
+    // because a cfg change means a new server SHA that the WASM client must match.
+    void this.rcon('setting network.pause_on_join 1').catch((e) => this.log('error', 'pause_on_join failed', { err: String(e) }));
     return this.boot();
   }
 
@@ -397,7 +407,8 @@ export class Bridge {
       this.retryAt = now;
       return;
     }
-    if (this.sendBlocked && !this.saving && !this.limited && now - this.lastResumeAt >= T.ping) {
+    this.checkIdle(now);
+    if (this.sendBlocked && !this.saving && !this.limited && !this.idlePaused && now - this.lastResumeAt >= T.ping) {
       // An op was nacked paused/held outside a save: the GS watchdog paused the game (§4.4).
       this.sendSession();
     }
@@ -411,6 +422,31 @@ export class Bridge {
     if (!this.saving && !this.limited && now - this.lastSaveAt >= T.saveEvery) {
       this.bg(this.save({ resume: true }), 'save');
     }
+  }
+
+  /**
+   * The console pause bit is independent of the GS one (session run/limit/hold keep working), and
+   * GSGame.IsPaused() is true while it is set, so ops nack `paused` and wait until someone joins.
+   */
+  private checkIdle(now: number): void {
+    if (this.clients.size > 0 || this.idlePaused) return;
+    this.emptySince ??= now;
+    if (now - this.emptySince < T.idlePause) return;
+    this.idlePaused = true;
+    this.log('info', 'nobody connected for 1 h, pausing the world');
+    this.rcon('pause').catch((e) => {
+      this.idlePaused = false; // next tick tries again
+      this.log('error', 'rcon pause failed', { err: String(e) });
+    });
+  }
+
+  /** First client in: lift the idle pause. Unconditional, so a gateway restart cannot leave the world paused. */
+  private wake(): void {
+    this.emptySince = null;
+    if (this.gsDead) return; // that pause stays (§4.5 step 10)
+    if (this.idlePaused) this.log('info', 'client joined, unpausing the world');
+    this.idlePaused = false;
+    void this.rcon('unpause').catch((e) => this.log('error', 'rcon unpause failed', { err: String(e) }));
   }
 
   private setDeadline(v: unknown): void {
@@ -891,6 +927,7 @@ export class Bridge {
       void this.rcon(`kick ${id}`).catch(() => undefined);
       return;
     }
+    if (this.clients.size === 0) this.wake();
     this.clients.set(id, { ip, studentId: who.studentId, role: who.role, admit: null });
     this.bg(this.admit(id), 'admission');
   }
@@ -903,6 +940,7 @@ export class Bridge {
 
   onClientQuit(id: number): void {
     this.clients.delete(id);
+    if (this.clients.size === 0) this.emptySince = Date.now();
   }
 
   onCompanyInfo(company: number, name: string): void {

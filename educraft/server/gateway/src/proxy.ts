@@ -104,10 +104,22 @@ export function createGateway(cfg: ProxyConfig, tls?: { cert: string; key: strin
 function pipe(ws: WebSocket, ip: string, cfg: ProxyConfig, pool: LoopbackPool, studentId: string | null, role: Role): void {
   cfg.registry.set(ip, { studentId, role });
   const tcp = net.connect({ host: cfg.gameHost, port: cfg.gamePort, localAddress: ip });
+  // Telemetry (edumise#11): who ended the connection and whether the browser had gone quiet before.
+  const t0 = Date.now();
+  const st = { inB: 0, outB: 0, lastIn: t0, lastOut: t0 };
   let closed = false;
-  const close = () => {
+  const close = (by: 'browser' | 'server' | 'ws-error' | 'tcp-error', code?: number, reason?: string) => {
     if (closed) return;
     closed = true;
+    const now = Date.now();
+    cfg.log('info', 'client disconnected', {
+      ip, role, by, code, reason,
+      ageS: Math.round((now - t0) / 1000),
+      inB: st.inB, outB: st.outB,
+      quietInS: Math.round((now - st.lastIn) / 1000), // since the browser last sent anything
+      quietOutS: Math.round((now - st.lastOut) / 1000),
+      bufferedB: ws.bufferedAmount, // sent to the browser but not yet flushed
+    });
     cfg.registry.delete(ip);
     pool.free(ip);
     tcp.destroy();
@@ -115,13 +127,22 @@ function pipe(ws: WebSocket, ip: string, cfg: ProxyConfig, pool: LoopbackPool, s
   };
   // ponytail: no backpressure handling; one game client is a few KB/s. Add pause/resume on
   // ws.bufferedAmount if map downloads ever stall slow clients.
-  ws.on('message', (data) => tcp.write(data as Buffer));
-  tcp.on('data', (d) => ws.send(d));
-  ws.on('close', close);
-  ws.on('error', close);
-  tcp.on('close', close);
+  ws.on('message', (data) => {
+    const b = data as Buffer;
+    st.inB += b.length;
+    st.lastIn = Date.now();
+    tcp.write(b);
+  });
+  tcp.on('data', (d) => {
+    st.outB += d.length;
+    st.lastOut = Date.now();
+    ws.send(d);
+  });
+  ws.on('close', (code, reason) => close('browser', code, reason.toString()));
+  ws.on('error', (e) => close('ws-error', undefined, String(e)));
+  tcp.on('close', () => close('server'));
   tcp.on('error', (e) => {
     cfg.log('warn', 'game connection failed', { ip, err: String(e) });
-    close();
+    close('tcp-error', undefined, String(e));
   });
 }
