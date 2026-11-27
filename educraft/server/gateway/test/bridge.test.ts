@@ -527,6 +527,13 @@ describe('failure modes (§4.5 steps 10, 11)', () => {
   });
 });
 
+describe('pause on join (edumise#11)', () => {
+  it('turns on pause_on_join on every admin connect', async () => {
+    await b.attach(gs);
+    expect(gs.rcons).toContain('setting network.pause_on_join 1');
+  });
+});
+
 describe('idle pause (edumise#11)', () => {
   beforeEach(() => {
     registry.clear();
@@ -598,6 +605,7 @@ describe('admission (§6.3)', () => {
     registry.set('127.77.0.4', { studentId: 's-9', role: 'pupil' });
     registry.set('127.77.0.5', { studentId: null, role: 'mayor' });
     await b.attach(gs);
+    gs.rcons.length = 0;
   });
 
   it('decides from CLIENT_INFO: kick, spectator, own company, new, not in a slot', async () => {

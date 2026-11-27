@@ -165,6 +165,11 @@ export class Bridge {
   attach(admin: AdminLink): Promise<void> {
     this.admin = admin;
     this.phase = 'boot';
+    // edumise#11: a joining client must replay every frame played during its map download in one
+    // blocking loop; on a 4096² map that starved the browser of packets for > 20 s and the client
+    // hung up. Pausing while someone joins keeps that backlog cheap. Set here, not in openttd.cfg,
+    // because a cfg change means a new server SHA that the WASM client must match.
+    void this.rcon('setting network.pause_on_join 1').catch((e) => this.log('error', 'pause_on_join failed', { err: String(e) }));
     return this.boot();
   }
 
