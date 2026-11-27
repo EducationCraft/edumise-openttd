@@ -29,8 +29,8 @@ export const T = {
   heldWait: 10_000,
   reportWait: 10_000,
   saveEvery: 5 * 60_000,
-  /** No client connected this long → console-pause the world (edumise#11: 5.T ran 18 game years empty). */
-  idlePause: 5 * 60_000,
+  /** No client connected this long (1 h) → console-pause the world (edumise#11: 5.T ran 18 game years empty). */
+  idlePause: 60 * 60_000,
 } as const;
 /** Chat warnings before the wallet's stopDeadline (the deadline job then stops the server). */
 const WARN = [
@@ -428,7 +428,7 @@ export class Bridge {
     this.emptySince ??= now;
     if (now - this.emptySince < T.idlePause) return;
     this.idlePaused = true;
-    this.log('info', 'nobody connected for 5 min, pausing the world');
+    this.log('info', 'nobody connected for 1 h, pausing the world');
     this.rcon('pause').catch((e) => {
       this.idlePaused = false; // next tick tries again
       this.log('error', 'rcon pause failed', { err: String(e) });

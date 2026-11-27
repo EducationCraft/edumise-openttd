@@ -533,9 +533,9 @@ describe('idle pause (edumise#11)', () => {
     registry.set('127.77.0.1', { studentId: 's-1', role: 'pupil' });
   });
 
-  it('pauses after 5 min with nobody connected, unpauses on the first join, pauses again once empty', async () => {
+  it('pauses after 1 h with nobody connected, unpauses on the first join, pauses again once empty', async () => {
     await b.attach(gs);
-    await run(4 * 60_000);
+    await run(59 * 60_000);
     expect(gs.rcons).not.toContain('pause');
     await run(61_000);
     expect(gs.rcons.filter((c) => c === 'pause')).toHaveLength(1);
@@ -547,7 +547,7 @@ describe('idle pause (edumise#11)', () => {
     await run(10 * 60_000); // someone connected: stays running
     expect(gs.rcons.filter((c) => c === 'pause')).toHaveLength(1);
     b.onClientQuit(7);
-    await run(4 * 60_000);
+    await run(59 * 60_000);
     expect(gs.rcons.filter((c) => c === 'pause')).toHaveLength(1);
     await run(61_000);
     expect(gs.rcons.filter((c) => c === 'pause')).toHaveLength(2);
