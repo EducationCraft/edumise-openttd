@@ -527,6 +527,42 @@ describe('failure modes (§4.5 steps 10, 11)', () => {
   });
 });
 
+describe('idle pause (edumise#11)', () => {
+  beforeEach(() => {
+    registry.clear();
+    registry.set('127.77.0.1', { studentId: 's-1', role: 'pupil' });
+  });
+
+  it('pauses after 5 min with nobody connected, unpauses on the first join, pauses again once empty', async () => {
+    await b.attach(gs);
+    await run(4 * 60_000);
+    expect(gs.rcons).not.toContain('pause');
+    await run(61_000);
+    expect(gs.rcons.filter((c) => c === 'pause')).toHaveLength(1);
+    expect(b.idlePaused).toBe(true);
+    b.onClientInfo(7, '127.77.0.1');
+    await run(0);
+    expect(gs.rcons).toContain('unpause');
+    expect(b.idlePaused).toBe(false);
+    await run(10 * 60_000); // someone connected: stays running
+    expect(gs.rcons.filter((c) => c === 'pause')).toHaveLength(1);
+    b.onClientQuit(7);
+    await run(4 * 60_000);
+    expect(gs.rcons.filter((c) => c === 'pause')).toHaveLength(1);
+    await run(61_000);
+    expect(gs.rcons.filter((c) => c === 'pause')).toHaveLength(2);
+  });
+
+  it('a join never lifts the GS-dead pause', async () => {
+    await b.attach(gs);
+    gs.alive = false;
+    await run(41_000);
+    b.onClientInfo(7, '127.77.0.1');
+    await run(0);
+    expect(gs.rcons).not.toContain('unpause');
+  });
+});
+
 describe('GS reports', () => {
   it('forwards need as a rescue, gone companies, and monthly finance', async () => {
     await b.attach(gs);
@@ -574,6 +610,7 @@ describe('admission (§6.3)', () => {
     await run(0);
     // Admissions run concurrently (each awaits its own GET /slots): compare as a set.
     expect([...gs.rcons].sort()).toEqual([
+      'unpause', // first client in lifts any idle pause
       'kick 5',
       'edu_admit 6 spectator',
       'edu_admit 7 1',
@@ -589,7 +626,7 @@ describe('admission (§6.3)', () => {
   it('a mayor never gets a company: spectator + chat, no slot lookup', async () => {
     b.onClientInfo(10, '127.77.0.5');
     await run(0);
-    expect(gs.rcons).toEqual(['edu_admit 10 spectator', 'say_client 10 "Jsi starosta. Ovládání: EduMise → Učitel → Starosta."']);
+    expect(gs.rcons).toEqual(['unpause', 'edu_admit 10 spectator', 'say_client 10 "Jsi starosta. Ovládání: EduMise → Učitel → Starosta."']);
     expect(w.of('GET', '/slots')).toHaveLength(0);
   });
 
@@ -597,7 +634,7 @@ describe('admission (§6.3)', () => {
     w.slots = [{ slot: 1, company: 0, studentIds: ['s-1', 's-2'] }];
     b.onClientInfo(8, '127.77.0.2');
     await run(0);
-    expect(gs.rcons).toEqual(['edu_admit 8 1']);
+    expect(gs.rcons).toEqual(['unpause', 'edu_admit 8 1']);
   });
 
   it('slotsRev change: moved pupils are demoted with a chat, the others stay', async () => {
